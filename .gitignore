@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+
+# Build artifacts
+build/
+*.so
+*.o
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Data
+data/documents/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
