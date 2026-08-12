@@ -15,9 +15,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 
+from backend.config import DATA_DIR
+
 logger = logging.getLogger(__name__)
 
-ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "documents")
+ROOT = os.path.join(DATA_DIR, "documents")
 
 
 # ---------------------------------------------------------------------------
