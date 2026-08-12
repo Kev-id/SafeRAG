@@ -9,5 +9,5 @@ async def get_status() -> dict:
     return {
         "qwen_reachable": reachable,
         "qwen_url": QWEN_BASE_URL,
-        "message": "Qwen 在线" if reachable else "无法连接 Qwen 推理引擎",
+        "message": "Qwen 在线" if reachable else "Qwen推理引擎正在处理其它请求，请稍后再试",
     }

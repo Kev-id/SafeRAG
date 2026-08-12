@@ -5,7 +5,7 @@ GET  /api/documents/{id}/download
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.services import document_service
 from backend.repositories.document_repo import report_path
@@ -18,9 +18,9 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 class ProcessRequest(BaseModel):
-    original_text: str
-    requirements: str
-    output_filename: str
+    original_text: str = Field(..., min_length=1, max_length=50000)
+    requirements: str = Field(..., min_length=1, max_length=2000)
+    output_filename: str = Field(..., min_length=1, max_length=100)
 
 class ProcessResponse(BaseModel):
     id: str
