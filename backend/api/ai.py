@@ -1,11 +1,11 @@
-"""GET /api/ai/status"""
+"""GET /api/v1/ai/status"""
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from backend.services import ai_service
 
-router = APIRouter()
+router = APIRouter(prefix="/api/v1")
 
 
 class AIStatusResponse(BaseModel):
@@ -14,6 +14,6 @@ class AIStatusResponse(BaseModel):
     message: str
 
 
-@router.get("/api/ai/status", response_model=AIStatusResponse)
+@router.get("/ai/status", response_model=AIStatusResponse)
 async def ai_status():
     return await ai_service.get_status()

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from backend.services import document_service
 from backend.repositories.document_repo import report_path
 
-router = APIRouter()
+router = APIRouter(prefix="/api/v1")
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ class DocumentDetail(BaseModel):
 # 端点
 # ---------------------------------------------------------------------------
 
-@router.post("/api/documents/process", response_model=ProcessResponse, status_code=201)
+@router.post("/documents/process", response_model=ProcessResponse, status_code=201)
 async def process(req: ProcessRequest):
     try:
         doc = await document_service.process(
@@ -63,7 +63,7 @@ async def process(req: ProcessRequest):
     )
 
 
-@router.get("/api/documents/{doc_id}", response_model=DocumentDetail)
+@router.get("/documents/{doc_id}", response_model=DocumentDetail)
 async def get_document(doc_id: str):
     try:
         doc = await document_service.get_detail(doc_id)
