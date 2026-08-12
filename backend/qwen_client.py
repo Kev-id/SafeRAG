@@ -16,7 +16,7 @@ class QwenError(Exception):
 async def check_health() -> bool:
     """检查 Qwen 推理引擎是否可达。"""
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(5)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(3)) as client:
             resp = await client.get(f"{QWEN_BASE_URL}/health")
             return resp.status_code == 200
     except httpx.RequestError:
