@@ -141,7 +141,7 @@ async def get_document(doc_id: str):
     )
 
 
-@router.get("/api/documents/{doc_id}/download")
+@router.get("/documents/{doc_id}/download")
 async def download(doc_id: str):
     try:
         doc = await document_service.get_detail(doc_id)
