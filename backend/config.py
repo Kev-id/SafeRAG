@@ -9,6 +9,10 @@ QWEN_TIMEOUT = int(os.getenv("QWEN_TIMEOUT", "300"))
 
 # ---- 数据存储 ----
 DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data"))
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    f"sqlite:///{os.path.join(DATA_DIR, 'saferag.db')}",
+)
 
 # ---- 服务 ----
 HOST = os.getenv("HOST", "0.0.0.0")

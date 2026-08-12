@@ -19,6 +19,13 @@ logging.basicConfig(
 
 app = FastAPI(title="SafeRAG API", version="0.1.0")
 
+# 启动时初始化数据库
+from backend.database import init_db
+
+@app.on_event("startup")
+async def on_startup():
+    init_db()
+
 # 挂载路由
 from backend.api.ai import router as ai_router
 from backend.api.documents import router as doc_router
