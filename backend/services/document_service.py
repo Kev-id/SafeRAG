@@ -13,6 +13,8 @@ from backend.repositories.document_repo import (
     save,
     get,
     update,
+    list_all,
+    count,
 )
 
 logger = logging.getLogger(__name__)
@@ -98,3 +100,31 @@ async def get_detail(doc_id: str) -> Document:
     if doc is None:
         raise FileNotFoundError(f"文档不存在: {doc_id}")
     return doc
+
+
+async def list_documents(
+    status: DocStatus | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    """分页列出文档，可按状态过滤。
+
+    返回: {items: [...], total: int, page: int, page_size: int}
+    """
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 20
+    if page_size > 100:
+        page_size = 100  # 防止一次拉太多
+
+    offset = (page - 1) * page_size
+    items = list_all(status=status, limit=page_size, offset=offset)
+    total = count(status=status)
+
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }

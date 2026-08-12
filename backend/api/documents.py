@@ -1,14 +1,15 @@
-"""POST /api/documents/process
-GET  /api/documents/{id}
-GET  /api/documents/{id}/download
+"""POST   /api/v1/documents/process
+GET    /api/v1/documents
+GET    /api/v1/documents/{id}
+GET    /api/v1/documents/{id}/download
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from backend.services import document_service
-from backend.repositories.document_repo import report_path
+from backend.repositories.document_repo import report_path, DocStatus
 
 router = APIRouter(prefix="/api/v1")
 
@@ -28,6 +29,21 @@ class ProcessResponse(BaseModel):
     output_filename: str
     message: str
 
+class DocumentListItem(BaseModel):
+    """列表项 — 只含概要字段，不含正文。"""
+    id: str
+    status: str
+    output_filename: str
+    processing_note: str | None = None
+    created_at: str
+    completed_at: str | None = None
+
+class DocumentListResponse(BaseModel):
+    items: list[DocumentListItem]
+    total: int
+    page: int
+    page_size: int
+
 class DocumentDetail(BaseModel):
     id: str
     status: str
@@ -43,6 +59,48 @@ class DocumentDetail(BaseModel):
 # ---------------------------------------------------------------------------
 # 端点
 # ---------------------------------------------------------------------------
+
+@router.get("/documents", response_model=DocumentListResponse)
+async def list_documents(
+    status: str | None = Query(None, description="按状态过滤: pending/processing/completed/failed"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页条数"),
+):
+    """分页获取文档列表，按创建时间倒序。"""
+    # 把字符串转成 DocStatus 枚举
+    status_enum: DocStatus | None = None
+    if status is not None:
+        try:
+            status_enum = DocStatus(status)
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"无效的状态值: {status}，允许: pending/processing/completed/failed",
+            )
+
+    result = await document_service.list_documents(
+        status=status_enum,
+        page=page,
+        page_size=page_size,
+    )
+
+    # 转成 API schema
+    return DocumentListResponse(
+        items=[
+            DocumentListItem(
+                id=doc.id,
+                status=doc.status.value,
+                output_filename=doc.output_filename,
+                processing_note=doc.processing_note,
+                created_at=doc.created_at,
+                completed_at=doc.completed_at,
+            )
+            for doc in result["items"]
+        ],
+        total=result["total"],
+        page=result["page"],
+        page_size=result["page_size"],
+    )
 
 @router.post("/documents/process", response_model=ProcessResponse, status_code=201)
 async def process(req: ProcessRequest):
