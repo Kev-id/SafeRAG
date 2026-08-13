@@ -34,7 +34,6 @@ class DocumentListItem(BaseModel):
     id: str
     status: str
     output_filename: str
-    processing_note: str | None = None
     created_at: str
     completed_at: str | None = None
 
@@ -51,7 +50,6 @@ class DocumentDetail(BaseModel):
     original_text: str
     requirements: str
     report_content: str | None = None
-    processing_note: str | None = None
     created_at: str
     completed_at: str | None = None
 
@@ -91,7 +89,6 @@ async def list_documents(
                 id=doc.id,
                 status=doc.status.value,
                 output_filename=doc.output_filename,
-                processing_note=doc.processing_note,
                 created_at=doc.created_at,
                 completed_at=doc.completed_at,
             )
@@ -135,7 +132,6 @@ async def get_document(doc_id: str):
         original_text=doc.original_text,
         requirements=doc.requirements,
         report_content=doc.report_content,
-        processing_note=doc.processing_note,
         created_at=doc.created_at,
         completed_at=doc.completed_at,
     )

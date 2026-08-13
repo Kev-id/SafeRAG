@@ -41,7 +41,6 @@ class Document:
     output_filename: str = "report"
     status: DocStatus = DocStatus.PENDING
     report_content: str | None = None
-    processing_note: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     completed_at: str | None = None
 
@@ -69,15 +68,14 @@ def save(doc: Document) -> Document:
         conn.execute(
             """INSERT INTO documents
                (id, status, output_filename, requirements, original_text,
-                processing_note, created_at, completed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                created_at, completed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
                 doc.id,
                 doc.status.value,
                 doc.output_filename,
                 doc.requirements,
                 doc.original_text,
-                doc.processing_note,
                 doc.created_at,
                 doc.completed_at,
             ),
@@ -109,7 +107,6 @@ def get(doc_id: str) -> Document | None:
         requirements=row["requirements"],
         original_text=row["original_text"],
         status=DocStatus(row["status"]),
-        processing_note=row["processing_note"],
         created_at=row["created_at"],
         completed_at=row["completed_at"],
     )
@@ -130,14 +127,13 @@ def update(doc: Document) -> Document:
         conn.execute(
             """UPDATE documents
                SET status=?, output_filename=?, requirements=?, original_text=?,
-                   processing_note=?, created_at=?, completed_at=?
+                   created_at=?, completed_at=?
                WHERE id=?""",
             (
                 doc.status.value,
                 doc.output_filename,
                 doc.requirements,
                 doc.original_text,
-                doc.processing_note,
                 doc.created_at,
                 doc.completed_at,
                 doc.id,
@@ -197,7 +193,6 @@ def list_all(
             requirements=row["requirements"],
             original_text=row["original_text"],
             status=DocStatus(row["status"]),
-            processing_note=row["processing_note"],
             created_at=row["created_at"],
             completed_at=row["completed_at"],
         )

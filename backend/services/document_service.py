@@ -1,6 +1,6 @@
 """业务层 — 文档处理核心逻辑。
 
-流程: 保存 → 拼 Prompt → 调 Qwen → 解析 → 存储结果
+流程: 保存 → 拼 Prompt → 调 Qwen → 存储结果
 """
 
 import logging
@@ -39,25 +39,11 @@ def _build_messages(original_text: str, requirements: str) -> list[dict]:
 ## 事故概述
 ## 原因分析
 ## 法规依据
-## 处理建议
-
-最后附上【修改说明】，简要说明你对原始文档做了哪些整理和补充。"""
+## 处理建议"""
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_content},
     ]
-
-
-def _parse_output(raw: str) -> tuple[str, str | None]:
-    """从 Qwen 输出中分离报告正文和修改说明。"""
-    import re
-    for marker in [r"\n\s*【修改说明】", r"\n\s*##\s*修改说明"]:
-        m = re.search(marker, raw)
-        if m:
-            report = raw[: m.start()].strip()
-            note = raw[m.start() :].strip()
-            return report, note
-    return raw.strip(), None
 
 
 async def process(original_text: str, requirements: str, output_filename: str) -> Document:
@@ -83,10 +69,8 @@ async def process(original_text: str, requirements: str, output_filename: str) -
         update(doc)
         raise
 
-    # 4. 解析 & 完成
-    report, note = _parse_output(raw)
-    doc.report_content = report
-    doc.processing_note = note
+    # 4. 完成
+    doc.report_content = raw.strip()
     doc.status = DocStatus.COMPLETED
     doc.completed_at = datetime.now(timezone.utc).isoformat()
     update(doc)
