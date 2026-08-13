@@ -34,11 +34,9 @@ def _build_messages(template: PromptTemplate, original_text: str, requirements: 
     ]
 
 
-async def process(task_type: str, original_text: str, requirements: str, output_filename: str) -> Document:
-    """处理文档：按任务类型选模板，调 Qwen 生成报告并存储。"""
-    template = get_template(task_type)  # 找不到会抛 KeyError
-
-    # 1. 新建
+async def create_document(task_type, original_text,requirements, output_filename) -> Document:
+    """只建记录 + 标记 processing，不碰模型，立即返回。"""
+    template = get_template(task_type)
     doc = Document(
         original_text=original_text,
         requirements=requirements,
@@ -46,28 +44,26 @@ async def process(task_type: str, original_text: str, requirements: str, output_
         task_type=task_type,
     )
     save(doc)
-
-    # 2. 处理中
     doc.status = DocStatus.PROCESSING
     update(doc)
+    return doc
 
-    # 3. 调 Qwen
+async def run_inference(doc_id:str) -> None:
+    doc = get(doc_id)
+    if doc is None:
+        return
+    template = get_template(doc.task_type)
     try:
-        messages = _build_messages(template, original_text, requirements)
+        messages = _build_messages(template,doc.original_text,doc.requirements)
         raw = await qwen_chat(messages)
     except Exception:
         doc.status = DocStatus.FAILED
         update(doc)
-        raise
-
-    # 4. 完成
+        return
     doc.report_content = raw.strip()
     doc.status = DocStatus.COMPLETED
     doc.completed_at = datetime.now(timezone.utc).isoformat()
     update(doc)
-
-    return doc
-
 
 async def get_detail(doc_id: str) -> Document:
     """获取文档详情。"""

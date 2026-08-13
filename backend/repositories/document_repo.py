@@ -237,5 +237,5 @@ def delete(doc_id: str) -> bool:
         conn.close()
     shutil.rmtree(doc_path, ignore_errors=True)
     logger.info("文档 %s 已删除", doc_id)
-    return delete
+    return deleted
 
