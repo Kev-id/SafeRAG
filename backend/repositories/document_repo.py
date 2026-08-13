@@ -39,6 +39,7 @@ class Document:
     original_text: str = ""
     requirements: str = ""
     output_filename: str = "report"
+    task_type: str = ""
     status: DocStatus = DocStatus.PENDING
     report_content: str | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -68,14 +69,15 @@ def save(doc: Document) -> Document:
         conn.execute(
             """INSERT INTO documents
                (id, status, output_filename, requirements, original_text,
-                created_at, completed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                task_type, created_at, completed_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 doc.id,
                 doc.status.value,
                 doc.output_filename,
                 doc.requirements,
                 doc.original_text,
+                doc.task_type,
                 doc.created_at,
                 doc.completed_at,
             ),
@@ -106,6 +108,7 @@ def get(doc_id: str) -> Document | None:
         output_filename=row["output_filename"],
         requirements=row["requirements"],
         original_text=row["original_text"],
+        task_type=row["task_type"],
         status=DocStatus(row["status"]),
         created_at=row["created_at"],
         completed_at=row["completed_at"],
@@ -127,13 +130,14 @@ def update(doc: Document) -> Document:
         conn.execute(
             """UPDATE documents
                SET status=?, output_filename=?, requirements=?, original_text=?,
-                   created_at=?, completed_at=?
+                   task_type=?, created_at=?, completed_at=?
                WHERE id=?""",
             (
                 doc.status.value,
                 doc.output_filename,
                 doc.requirements,
                 doc.original_text,
+                doc.task_type,
                 doc.created_at,
                 doc.completed_at,
                 doc.id,
@@ -192,6 +196,7 @@ def list_all(
             output_filename=row["output_filename"],
             requirements=row["requirements"],
             original_text=row["original_text"],
+            task_type=row["task_type"],
             status=DocStatus(row["status"]),
             created_at=row["created_at"],
             completed_at=row["completed_at"],

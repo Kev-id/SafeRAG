@@ -39,6 +39,7 @@ def init_db() -> None:
                 output_filename TEXT NOT NULL DEFAULT 'report',
                 requirements    TEXT NOT NULL DEFAULT '',
                 original_text   TEXT NOT NULL DEFAULT '',
+                task_type       TEXT NOT NULL DEFAULT '',
                 created_at      TEXT NOT NULL,
                 completed_at    TEXT
             )
