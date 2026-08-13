@@ -16,6 +16,7 @@ from backend.repositories.document_repo import (
     update,
     list_all,
     count,
+    delete,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,3 +103,9 @@ async def list_documents(
         "page": page,
         "page_size": page_size,
     }
+
+async def delete_document(doc_id: str) -> bool:
+    doc = get(doc_id)
+    if doc is None:
+        raise FileNotFoundError(f"文档不存在: {doc_id}")
+    return delete(doc_id)

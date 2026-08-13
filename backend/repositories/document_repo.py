@@ -10,6 +10,7 @@
 import os
 import uuid
 import logging
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -220,3 +221,21 @@ def count(status: DocStatus | None = None) -> int:
         return row["cnt"]
     finally:
         conn.close()
+
+
+def delete(doc_id: str) -> bool:
+    doc_path = _doc_dir(doc_id)
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """DELETE FROM documents WHERE id = ?""",
+            (doc_id,),
+        )
+        deleted = cur.rowcount > 0
+        conn.commit()
+    finally:
+        conn.close()
+    shutil.rmtree(doc_path, ignore_errors=True)
+    logger.info("文档 %s 已删除", doc_id)
+    return delete
+

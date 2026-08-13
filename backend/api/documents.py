@@ -158,3 +158,11 @@ async def download(doc_id: str):
         filename=doc.report_filename,
         media_type="text/markdown; charset=utf-8",
     )
+
+
+@router.delete("/documents/{doc_id}", status_code=204)
+async def delete(doc_id: str):
+    try:
+        await document_service.delete_document(doc_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
