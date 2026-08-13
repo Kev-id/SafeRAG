@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.pyc
+.pytest_cache/
 
 # Build artifacts
 build/
@@ -10,12 +11,13 @@ CMakeCache.txt
 cmake_install.cmake
 Makefile
 
-# Data
-data/documents/
+# Data（运行时生成：SQLite 数据库 + 文档目录）
+data/
 
-# IDE
+# IDE / 本地配置
 .vscode/
 .idea/
+.claude/
 
 # OS
 .DS_Store
