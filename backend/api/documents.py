@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/v1")
 # ---------------------------------------------------------------------------
 
 class ProcessRequest(BaseModel):
+    task_type: str = Field(..., min_length=1, max_length=50)
     original_text: str = Field(..., min_length=1, max_length=1000)
     requirements: str = Field(..., min_length=1, max_length=1000)
     output_filename: str = Field(..., min_length=1, max_length=100)
@@ -34,6 +35,7 @@ class DocumentListItem(BaseModel):
     id: str
     status: str
     output_filename: str
+    task_type: str
     created_at: str
     completed_at: str | None = None
 
@@ -47,6 +49,7 @@ class DocumentDetail(BaseModel):
     id: str
     status: str
     output_filename: str
+    task_type: str
     original_text: str
     requirements: str
     report_content: str | None = None
@@ -89,6 +92,7 @@ async def list_documents(
                 id=doc.id,
                 status=doc.status.value,
                 output_filename=doc.output_filename,
+                task_type=doc.task_type,
                 created_at=doc.created_at,
                 completed_at=doc.completed_at,
             )
@@ -103,10 +107,13 @@ async def list_documents(
 async def process(req: ProcessRequest):
     try:
         doc = await document_service.process(
+            task_type=req.task_type,
             original_text=req.original_text,
             requirements=req.requirements,
             output_filename=req.output_filename,
         )
+    except KeyError:
+        raise HTTPException(status_code=422, detail=f"无效的任务类型: {req.task_type}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -129,6 +136,7 @@ async def get_document(doc_id: str):
         id=doc.id,
         status=doc.status.value,
         output_filename=doc.report_filename,
+        task_type=doc.task_type,
         original_text=doc.original_text,
         requirements=doc.requirements,
         report_content=doc.report_content,

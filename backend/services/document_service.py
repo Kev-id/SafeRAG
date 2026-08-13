@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone
 
 from backend.qwen_client import chat as qwen_chat
+from backend.services.template_service import get_template, PromptTemplate
 from backend.repositories.document_repo import (
     Document,
     DocStatus,
@@ -19,40 +20,29 @@ from backend.repositories.document_repo import (
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = (
-    "你是一个安全生产专家，擅长根据事故信息生成专业的安全分析报告。"
-    "请严格按照用户提供的原始文档和处理要求来整理报告。"
-)
 
-
-def _build_messages(original_text: str, requirements: str) -> list[dict]:
-    user_content = f"""请根据以下信息生成安全报告。
-
-【事故原始文档】
-{original_text}
-
-【处理要求】
-{requirements}
-
-请按以下结构输出报告（使用 Markdown 格式）：
-
-## 事故概述
-## 原因分析
-## 法规依据
-## 处理建议"""
+def _build_messages(template: PromptTemplate, original_text: str, requirements: str) -> list[dict]:
+    """按模板拼出 system + user 两条消息。"""
+    user_content = template.user_template.format(
+        original_text=original_text,
+        requirements=requirements,
+    )
     return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": template.system_prompt},
         {"role": "user", "content": user_content},
     ]
 
 
-async def process(original_text: str, requirements: str, output_filename: str) -> Document:
-    """处理文档：调 Qwen 生成报告并存储。"""
+async def process(task_type: str, original_text: str, requirements: str, output_filename: str) -> Document:
+    """处理文档：按任务类型选模板，调 Qwen 生成报告并存储。"""
+    template = get_template(task_type)  # 找不到会抛 KeyError
+
     # 1. 新建
     doc = Document(
         original_text=original_text,
         requirements=requirements,
         output_filename=output_filename,
+        task_type=task_type,
     )
     save(doc)
 
@@ -62,7 +52,7 @@ async def process(original_text: str, requirements: str, output_filename: str) -
 
     # 3. 调 Qwen
     try:
-        messages = _build_messages(original_text, requirements)
+        messages = _build_messages(template, original_text, requirements)
         raw = await qwen_chat(messages)
     except Exception:
         doc.status = DocStatus.FAILED
