@@ -1,0 +1,14 @@
+# 项目工具配置 — 依赖仍由 backend/requirements.txt 管理。
+# 本文件只放工具（pytest / ruff）的配置。
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E = pycodestyle 错误, F = pyflakes 潜在 bug, I = import 排序
+select = ["E", "F", "I"]
