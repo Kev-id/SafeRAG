@@ -4,7 +4,7 @@
     python scripts/build_knowledge_base.py [--source-dir DIR]
 
 流程:
-    扫描 DIR 下所有 .txt → 按段落切块 → 与库内已有块比对 → 只更新有变动的文件
+    扫描 DIR 下所有 .txt → 自适应切块 → 与库内已有块比对 → 只更新有变动的文件
 
 说明:
     用文件内容 md5 判断变化：新增/修改的文件重新切块覆盖，删除的文件从库移除，未变化的跳过。
@@ -30,7 +30,7 @@ from backend.core.embedding_client import BgeEmbeddingFunction
 logger = logging.getLogger(__name__)
 
 # 单个 chunk 的最大字符数（超过则按句末标点二次切分）
-MAX_CHUNK_CHARS = 500
+MAX_CHUNK_CHARS = 200
 
 
 def read_text(path: str) -> str:
@@ -64,8 +64,27 @@ def _split_long(paragraph: str, max_chars: int) -> list[str]:
     return chunks
 
 
-def split_text(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
-    """把整篇文本切成块：先按空行分段落，长段落再按句末标点二次切。"""
+def _looks_like_line_items(lines: list[str]) -> bool:
+    """判断是否"一行一条"格式：绝大多数行以句末标点结尾（每行是自包含完整句）。"""
+    if not lines:
+        return False
+    ended = sum(1 for l in lines if l.endswith(("。", "！", "？", "；")))
+    return ended / len(lines) >= 0.8
+
+
+def _split_lines(lines: list[str], max_chars: int) -> list[str]:
+    """按行切：每行一块，超长行按句末标点二次切。"""
+    chunks = []
+    for line in lines:
+        if len(line) <= max_chars:
+            chunks.append(line)
+        else:
+            chunks.extend(_split_long(line, max_chars))
+    return chunks
+
+
+def _split_paragraphs(text: str, max_chars: int) -> list[str]:
+    """按空行分段落，长段按句末标点二次切。"""
     paragraphs = re.split(r"\n\s*\n", text)
     chunks = []
     for para in paragraphs:
@@ -79,8 +98,25 @@ def split_text(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
     return chunks
 
 
-def build(source_dir: str = KB_SOURCE_DIR, persist_dir: str = KB_DIR, collection_name: str = KB_COLLECTION) -> None:
-    """增量同步知识库：只重切 + 覆盖有变动的文件，未变化的跳过。"""
+def split_text(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
+    """自适应切块：
+      - 一行一条（绝大多数行以句末标点结尾）→ 按行切，适合法规条文
+      - 成段文章 → 按空行分段落切
+    长块统一按句末标点二次切到 max_chars 以内。
+    """
+    lines = [l.strip() for l in text.split("\n")]
+    lines = [l for l in lines if l]
+
+    if _looks_like_line_items(lines):
+        return _split_lines(lines, max_chars)
+    return _split_paragraphs(text, max_chars)
+
+
+def build(source_dir: str = KB_SOURCE_DIR, persist_dir: str = KB_DIR, collection_name: str = KB_COLLECTION, force: bool = False) -> None:
+    """增量同步知识库：只重切 + 覆盖有变动的文件，未变化的跳过。
+
+    force=True 时先清空 collection 再全量重建（切块策略调整后需要整体重切时用）。
+    """
     if not os.path.isdir(source_dir):
         raise ValueError(f"源目录不存在: {source_dir}")
 
@@ -95,6 +131,14 @@ def build(source_dir: str = KB_SOURCE_DIR, persist_dir: str = KB_DIR, collection
         source_map[filename] = (text, _file_md5(text))
 
     client = chromadb.PersistentClient(path=persist_dir)
+
+    if force:
+        try:
+            client.delete_collection(collection_name)
+            logger.info("--force：已删除旧 collection '%s'，将全量重建", collection_name)
+        except Exception:
+            pass
+
     collection = client.get_or_create_collection(
         name=collection_name,
         embedding_function=BgeEmbeddingFunction(),
@@ -154,6 +198,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="构建 RAG 知识库（扫描目录下 txt → ChromaDB）")
     parser.add_argument("--source-dir", default=KB_SOURCE_DIR, help="源目录，扫描其中所有 .txt")
+    parser.add_argument("--force", action="store_true", help="清空 collection 全量重建（切块策略调整后用）")
     args = parser.parse_args()
 
-    build(args.source_dir)
+    build(args.source_dir, force=args.force)
