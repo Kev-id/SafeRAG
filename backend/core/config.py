@@ -19,6 +19,7 @@ DATABASE_URL = os.getenv(
 
 # ---- RAG 知识库（ChromaDB）----
 KB_DIR = os.getenv("KB_DIR", os.path.join(DATA_DIR, "kb"))
+KB_SOURCE_DIR = os.getenv("KB_SOURCE_DIR", os.path.join(DATA_DIR, "kb_source"))
 KB_COLLECTION = os.getenv("KB_COLLECTION", "regulations")
 
 # ---- 服务 ----

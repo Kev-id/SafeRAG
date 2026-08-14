@@ -146,5 +146,6 @@ if __name__ == "__main__":
         hits = retriever.retrieve(q, top_k=3)
         print(f"\n查询: {q}")
         for h in hits:
-            line = h["meta"].get("line", "?")
-            print(f"  [第{line}行] (RRF={h['score']:.4f}) {h['text'][:40]}...")
+            src = h["meta"].get("source", "?")
+            chunk = h["meta"].get("chunk", "?")
+            print(f"  [{src}#{chunk}] (RRF={h['score']:.4f}) {h['text'][:40]}...")
