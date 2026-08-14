@@ -17,6 +17,10 @@ DATABASE_URL = os.getenv(
     f"sqlite:///{os.path.join(DATA_DIR, 'saferag.db')}",
 )
 
+# ---- RAG 知识库（ChromaDB）----
+KB_DIR = os.getenv("KB_DIR", os.path.join(DATA_DIR, "kb"))
+KB_COLLECTION = os.getenv("KB_COLLECTION", "regulations")
+
 # ---- 服务 ----
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8081"))
