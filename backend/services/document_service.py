@@ -74,6 +74,7 @@ async def run_inference(doc_id:str) -> None:
         messages = _build_messages(template,doc.original_text,doc.requirements,context)
         raw = await qwen_chat(messages)
     except Exception:
+        logger.exception("推理失败: doc_id=%s", doc_id)
         doc.status = DocStatus.FAILED
         update(doc)
         return
