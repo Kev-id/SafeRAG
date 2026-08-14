@@ -8,7 +8,7 @@ import sqlite3
 import os
 import logging
 
-from backend.config import DATABASE_URL
+from backend.core.config import DATABASE_URL
 
 logger = logging.getLogger(__name__)
 

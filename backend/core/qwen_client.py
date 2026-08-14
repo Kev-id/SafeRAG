@@ -3,7 +3,7 @@
 import httpx
 import logging
 
-from backend.config import QWEN_BASE_URL, QWEN_MODEL, QWEN_TIMEOUT
+from backend.core.config import QWEN_BASE_URL, QWEN_MODEL, QWEN_TIMEOUT
 
 logger = logging.getLogger(__name__)
 

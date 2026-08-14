@@ -20,7 +20,7 @@ logging.basicConfig(
 app = FastAPI(title="SafeRAG API", version="0.1.0")
 
 # 启动时初始化数据库
-from backend.database import init_db
+from backend.core.database import init_db
 
 @app.on_event("startup")
 async def on_startup():

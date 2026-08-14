@@ -6,7 +6,7 @@
 import logging
 from datetime import datetime, timezone
 
-from backend.qwen_client import chat as qwen_chat
+from backend.core.qwen_client import chat as qwen_chat
 from backend.services.template_service import get_template, PromptTemplate
 from backend.repositories.document_repo import (
     Document,

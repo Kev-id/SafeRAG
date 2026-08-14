@@ -17,14 +17,14 @@ import os
 import sys
 import logging
 
-# 保证 `python backend/embedding_client.py` 直接跑也能 import backend 包
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 保证 `python backend/core/embedding_client.py` 直接跑也能 import backend 包
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import numpy as np
 import onnxruntime as ort
 from tokenizers import Tokenizer
 
-from backend.config import EMBEDDING_MODEL_PATH
+from backend.core.config import EMBEDDING_MODEL_PATH
 
 logger = logging.getLogger(__name__)
 

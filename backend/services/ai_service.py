@@ -1,7 +1,7 @@
 """业务层 — AI 状态检查。"""
 
-from backend.qwen_client import check_health
-from backend.config import QWEN_BASE_URL
+from backend.core.qwen_client import check_health
+from backend.core.config import QWEN_BASE_URL
 
 
 async def get_status() -> dict:
