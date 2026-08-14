@@ -22,29 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import chromadb
 
 from backend.core.config import KB_COLLECTION, KB_DIR
-from backend.core.embedding_client import embed
+from backend.core.embedding_client import BgeEmbeddingFunction
 
 logger = logging.getLogger(__name__)
-
-
-class BgeEmbeddingFunction:
-    """把 BGE 的 embed() 包装成 ChromaDB 要求的 embedding function 接口。
-
-    ChromaDB 会以 list[str] 调用，期望返回 list[list[float]]：
-      - 写入（add）时调 __call__
-      - 查询（query）时调 embed_query（新版 chromadb 0.5+）
-    两者行为一致，都复用已部署的 BGE ONNX 模型，
-    不让 ChromaDB 再加载它内置的 MiniLM。
-    """
-
-    def name(self) -> str:
-        return "bge-small-zh-v1.5"
-
-    def __call__(self, input: list[str]) -> list[list[float]]:
-        return embed(input).tolist()
-
-    def embed_query(self, input: list[str]) -> list[list[float]]:
-        return embed(input).tolist()
 
 
 def load_lines(path: str) -> list[str]:

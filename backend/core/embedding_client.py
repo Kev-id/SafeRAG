@@ -105,6 +105,25 @@ def embed(texts: str | list[str]) -> np.ndarray:
     return vec / norms
 
 
+class BgeEmbeddingFunction:
+    """把 embed() 包装成 ChromaDB 的 embedding function 接口。
+
+    ChromaDB 以 list[str] 调用，期望 list[list[float]]：
+      - 写入（add）调 __call__
+      - 查询（query）调 embed_query（新版 chromadb 0.5+）
+    两者行为一致，供知识库构建和检索共用。
+    """
+
+    def name(self) -> str:
+        return "bge-small-zh-v1.5"
+
+    def __call__(self, input: list[str]) -> list[list[float]]:
+        return embed(input).tolist()
+
+    def embed_query(self, input: list[str]) -> list[list[float]]:
+        return embed(input).tolist()
+
+
 if __name__ == "__main__":
     # 自测：验证维度、归一化、语义正确性
     logging.basicConfig(level=logging.INFO)
