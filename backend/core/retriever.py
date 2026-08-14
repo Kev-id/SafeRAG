@@ -120,6 +120,18 @@ class Retriever:
         return results
 
 
+# 全局单例：后端启动后复用同一个检索器，避免每次请求重建 BM25 索引
+_retriever: Retriever | None = None
+
+
+def get_retriever() -> Retriever:
+    """获取全局唯一检索器（懒加载，第一次调用才初始化）。"""
+    global _retriever
+    if _retriever is None:
+        _retriever = Retriever()
+    return _retriever
+
+
 if __name__ == "__main__":
     # 自测：几个典型问题，验证混合检索
     logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")

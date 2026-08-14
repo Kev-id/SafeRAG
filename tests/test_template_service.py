@@ -34,7 +34,7 @@ def test_list_templates_returns_all_three():
 
 
 def test_every_template_has_placeholders():
-    """每个模板都必须含两个占位符，否则 _build_messages 的 .format() 会崩。
+    """每个模板都必须含三个占位符，否则 _build_messages 的 .format() 会崩。
 
     这是"数据完整性"测试：模板是手写数据，最容易漏占位符。
     以后你加新模板，这个测试会自动帮你检查。
@@ -42,4 +42,5 @@ def test_every_template_has_placeholders():
     for t in list_templates():
         assert "{original_text}" in t.user_template, f"{t.key} 缺少 {{original_text}}"
         assert "{requirements}" in t.user_template, f"{t.key} 缺少 {{requirements}}"
+        assert "{context}" in t.user_template, f"{t.key} 缺少 {{context}}"
         assert t.system_prompt, f"{t.key} 的 system_prompt 为空"

@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone
 
 from backend.core.qwen_client import chat as qwen_chat
+from backend.core.retriever import get_retriever
 from backend.services.template_service import get_template, PromptTemplate
 from backend.repositories.document_repo import (
     Document,
@@ -22,16 +23,31 @@ from backend.repositories.document_repo import (
 logger = logging.getLogger(__name__)
 
 
-def _build_messages(template: PromptTemplate, original_text: str, requirements: str) -> list[dict]:
-    """按模板拼出 system + user 两条消息。"""
+def _build_messages(template: PromptTemplate, original_text: str, requirements: str, context: str = "") -> list[dict]:
+    """按模板拼出 system + user 两条消息。context 是检索到的法规条文。"""
     user_content = template.user_template.format(
         original_text=original_text,
         requirements=requirements,
+        context=context,
     )
     return [
         {"role": "system", "content": template.system_prompt},
         {"role": "user", "content": user_content},
     ]
+
+
+def _retrieve_context(original_text: str, top_k: int = 5) -> str:
+    """检索相关法规条文，拼成一段文本。
+
+    检索失败时返回空串，降级为"不注入法规"的纯 LLM 生成，
+    保证知识库未建好或不可用时，报告生成功能仍能工作。
+    """
+    try:
+        hits = get_retriever().retrieve(original_text, top_k=top_k)
+        return "\n".join(f"- {h['text']}" for h in hits)
+    except Exception:
+        logger.exception("检索知识库失败，降级为不注入法规")
+        return ""
 
 
 async def create_document(task_type, original_text,requirements, output_filename) -> Document:
@@ -54,7 +70,8 @@ async def run_inference(doc_id:str) -> None:
         return
     template = get_template(doc.task_type)
     try:
-        messages = _build_messages(template,doc.original_text,doc.requirements)
+        context = _retrieve_context(doc.original_text)  # RAG：先检索相关法规
+        messages = _build_messages(template,doc.original_text,doc.requirements,context)
         raw = await qwen_chat(messages)
     except Exception:
         doc.status = DocStatus.FAILED
