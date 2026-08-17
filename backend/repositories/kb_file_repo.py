@@ -23,11 +23,11 @@ def upsert(kf: dict) -> None:
     try:
         conn.execute(
             """INSERT INTO kb_files
-               (filename, md5, type, size, chunk_count, status, message, updated_at)
+               (filename, md5, file_type, size, chunk_count, status, message, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(filename) DO UPDATE SET
                    md5 = excluded.md5,
-                   type = excluded.type,
+                   file_type = excluded.file_type,
                    size = excluded.size,
                    chunk_count = excluded.chunk_count,
                    status = excluded.status,
@@ -36,7 +36,7 @@ def upsert(kf: dict) -> None:
             (
                 kf["filename"],
                 kf.get("md5"),
-                kf.get("type"),
+                kf.get("file_type"),
                 kf.get("size"),
                 kf.get("chunk_count", 0),
                 kf.get("status", "building"),
