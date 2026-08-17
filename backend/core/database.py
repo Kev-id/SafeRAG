@@ -48,6 +48,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS kb_files (
                 filename     TEXT PRIMARY KEY,      -- 源文件名，就是知识库文档的 key
                 md5          TEXT,                  -- 内容指纹（build 判变更用）
+                type         TEXT,                   -- 文件种类（国家法律，行政法规，地方法规等）
                 size         INTEGER,               -- 字节数
                 chunk_count  INTEGER,               -- 切了多少块
                 updated_at   TEXT,                  -- 最近一次同步时间

@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
+from typing import Optional
 
 from backend.core.config import KB_SOURCE_DIR
 from backend.core.retriever import reset_retriever
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
 
 
-async def upload_kb_file(filename: str, content: bytes) -> dict:
+async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
     """保存上传的 txt，登记到 SQLite，并把切块写入 ChromaDB 索引。"""
     safe_name = os.path.basename(filename)  # 防路径穿越：只取文件名
     if not safe_name.lower().endswith(".txt"):
@@ -33,7 +34,7 @@ async def upload_kb_file(filename: str, content: bytes) -> dict:
     if len(content) > MAX_UPLOAD_BYTES:
         raise ValueError(f"文件超过 {MAX_UPLOAD_BYTES // (1024 * 1024)}MB 限制: {safe_name}")
 
-    os.makedirs(KB_SOURCE_DIR, exist_ok=True)
+    os.makedirs(KB_SOURCE_DIR, exist_ok=True)#exist_ok=True 表示如果目录已经存在，则不会抛出异常，而是继续执行后续代码。
     file_path = os.path.join(KB_SOURCE_DIR, safe_name)
     with open(file_path, "wb") as f:
         f.write(content)
@@ -52,7 +53,7 @@ async def upload_kb_file(filename: str, content: bytes) -> dict:
 
     md5 = file_md5(text)
     kb_file_repo.upsert({
-        "filename": safe_name, "md5": md5, "size": len(content),
+        "filename": safe_name, "md5": md5, "file_type": file_type, "size": len(content),
         "chunk_count": 0, "status": "building", "message": None, "updated_at": now,
     })
 
@@ -63,13 +64,13 @@ async def upload_kb_file(filename: str, content: bytes) -> dict:
     except Exception:
         logger.exception("写入知识库索引失败: %s", safe_name)
         kb_file_repo.upsert({
-            "filename": safe_name, "md5": md5, "size": len(content),
+            "filename": safe_name, "md5": md5, "type": type, "size": len(content),
             "chunk_count": 0, "status": "failed", "message": "写入索引失败", "updated_at": now,
         })
         raise
 
     kb_file_repo.upsert({
-        "filename": safe_name, "md5": md5, "size": len(content),
+        "filename": safe_name, "md5": md5, "type": type, "size": len(content),
         "chunk_count": chunk_count, "status": "ready", "message": None, "updated_at": now,
     })
     reset_retriever()  # 检索器缓存失效，下次检索才拿得到新文件
@@ -94,9 +95,9 @@ async def delete_kb_file(filename: str) -> dict:
     return {"message": f"已删除并重建知识库: {safe_name}"}
 
 
-async def list_kb_files() -> list[dict]:
+async def list_kb_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None) -> list[dict]:
     """列出知识库文件（直接读登记册，不碰 ChromaDB）。"""
-    return kb_file_repo.list_all()
+    return kb_file_repo.list_files(file_type=file_type, status=status, keyword=keyword)
 
 
 async def get_kb_file(filename: str) -> dict:

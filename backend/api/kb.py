@@ -1,13 +1,15 @@
 """知识库文件 API
 
 POST   /api/v1/files               上传知识库文件（multipart/form-data）
-GET    /api/v1/files               列出知识库文件
+GET    /api/v1/files?               列出知识库文件
 GET    /api/v1/files/{filename}    获取单个文件详情
 DELETE /api/v1/files/{filename}    删除知识库文件
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from typing import Optional
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
+
 
 from backend.services import knowledge_service
 
@@ -22,6 +24,7 @@ class KbFileItem(BaseModel):
     """列表项 — 只含元数据，不含正文。"""
     filename: str
     md5: str | None = None
+    file_type: str | None = None
     size: int | None = None
     chunk_count: int = 0
     status: str = "building"
@@ -35,19 +38,22 @@ class KbFileDetail(KbFileItem):
 
 
 @router.post("/files", response_model=KbUploadResponse, status_code=201)
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    file: UploadFile = File(...),
+    file_type: str = Form(...),
+    ):
     """上传 txt 文件，登记到 SQLite 并写入 ChromaDB 索引。"""
     content = await file.read()
     try:
-        return await knowledge_service.upload_kb_file(file.filename or "", content)
+        return await knowledge_service.upload_kb_file(file.filename or "", content, file_type=file_type)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.get("/files", response_model=list[KbFileItem])
-async def list_files():
+async def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None):
     """列出知识库文件（读登记册，权威源）。"""
-    items = await knowledge_service.list_kb_files()
+    items = await knowledge_service.list_kb_files(file_type=file_type, status=status, keyword=keyword)
     return [KbFileItem(**item) for item in items]
 
 

@@ -24,7 +24,7 @@ _collection = None
 
 def get_collection():
     """获取知识库 collection（懒加载，进程内复用同一个实例）。"""
-    global _client, _collection
+    global _client, _collection#global的声明是为了在函数内部修改全局变量的值，而不是创建一个新的局部变量。
     if _collection is None:
         _client = chromadb.PersistentClient(path=KB_DIR)
         _collection = _client.get_or_create_collection(
