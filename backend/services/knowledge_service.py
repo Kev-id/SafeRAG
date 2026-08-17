@@ -64,13 +64,13 @@ async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
     except Exception:
         logger.exception("写入知识库索引失败: %s", safe_name)
         kb_file_repo.upsert({
-            "filename": safe_name, "md5": md5, "type": type, "size": len(content),
+            "filename": safe_name, "md5": md5, "file_type": file_type, "size": len(content),
             "chunk_count": 0, "status": "failed", "message": "写入索引失败", "updated_at": now,
         })
         raise
 
     kb_file_repo.upsert({
-        "filename": safe_name, "md5": md5, "type": type, "size": len(content),
+        "filename": safe_name, "md5": md5, "file_type": file_type, "size": len(content),
         "chunk_count": chunk_count, "status": "ready", "message": None, "updated_at": now,
     })
     reset_retriever()  # 检索器缓存失效，下次检索才拿得到新文件
