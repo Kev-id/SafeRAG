@@ -65,7 +65,7 @@ def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword
     """列出所有指定类型的登记文件（按文件名排序）。"""
     conditions, params = [], []
     if file_type:
-        conditions.append("type = ?")
+        conditions.append("file_type = ?")
         params.append(file_type)
     if status:
         conditions.append("status = ?")
