@@ -97,3 +97,22 @@ def delete(filename: str) -> bool:
     finally:
         conn.close()
     return deleted
+
+def get_stats() -> dict:
+    """获取知识库统计信息"""
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) AS file_count, SUM(size) AS total_size, SUM(chunk_count) AS chunk_count FROM kb_files"
+        ).fetchone()
+        status_counts = conn.execute(
+            "SELECT status, COUNT(*) AS count FROM kb_files GROUP BY status"
+        ).fetchall()
+    finally:
+        conn.close()
+    return {
+        "file_count": row["file_count"] or 0,
+        "chunk_count": row["chunk_count"] or 0,
+        "total_size": row["total_size"] or 0,
+        "status_counts": {r["status"]: r["count"] for r in status_counts},
+    }

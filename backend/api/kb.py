@@ -36,6 +36,11 @@ class KbFileDetail(KbFileItem):
     """详情 — 列表项 + 正文内容。"""
     content: str | None = None
 
+class KbStatsResponse(BaseModel):
+    file_count: int
+    chunk_count: int
+    total_size: int
+    status_counts: dict[str, int]
 
 @router.post("/files", response_model=KbUploadResponse, status_code=201)
 async def upload_file(
@@ -74,3 +79,15 @@ async def delete_file(filename: str):
         return await knowledge_service.delete_kb_file(filename)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+@router.get("/kb/stats", response_model=KbStatsResponse)
+async def get_kb_stats():
+    """获取知识库统计信息"""
+    return await knowledge_service.get_stats()
+
+
+
+        
+    
+    
+    
