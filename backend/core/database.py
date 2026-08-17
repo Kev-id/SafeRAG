@@ -44,6 +44,17 @@ def init_db() -> None:
                 completed_at    TEXT
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS kb_files (
+                filename     TEXT PRIMARY KEY,      -- 源文件名，就是知识库文档的 key
+                md5          TEXT,                  -- 内容指纹（build 判变更用）
+                size         INTEGER,               -- 字节数
+                chunk_count  INTEGER,               -- 切了多少块
+                updated_at   TEXT,                  -- 最近一次同步时间
+                status       TEXT NOT NULL DEFAULT 'ready',   -- ready / failed
+                message      TEXT                   -- 失败原因
+            )
+        """)
         conn.commit()
         logger.info("数据库初始化完成: %s", _DB_PATH)
     finally:
