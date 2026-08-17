@@ -56,6 +56,9 @@ def init_db() -> None:
                 message      TEXT                   -- 失败原因
             )
         """)
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(kb_files)")}
+        if "file_type" not in cols:
+            conn.execute("ALTER TABLE kb_files ADD COLUMN file_type TEXT")
         conn.commit()
         logger.info("数据库初始化完成: %s", _DB_PATH)
     finally:
