@@ -21,12 +21,17 @@ from backend.repositories import kb_file_repo
 
 logger = logging.getLogger(__name__)
 
+# 单文件上传大小上限（防误传大文件撑爆磁盘）
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
+
 
 async def upload_kb_file(filename: str, content: bytes) -> dict:
     """保存上传的 txt，登记到 SQLite，并把切块写入 ChromaDB 索引。"""
     safe_name = os.path.basename(filename)  # 防路径穿越：只取文件名
     if not safe_name.lower().endswith(".txt"):
         raise ValueError(f"仅支持 .txt 格式，收到: {safe_name}")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise ValueError(f"文件超过 {MAX_UPLOAD_BYTES // (1024 * 1024)}MB 限制: {safe_name}")
 
     os.makedirs(KB_SOURCE_DIR, exist_ok=True)
     file_path = os.path.join(KB_SOURCE_DIR, safe_name)

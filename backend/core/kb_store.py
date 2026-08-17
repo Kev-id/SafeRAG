@@ -16,15 +16,23 @@ logger = logging.getLogger(__name__)
 # 单个文件一次写入多少块（控制 embedding 批大小）
 _BATCH = 32
 
+# 懒加载缓存：client / collection 第一次用时才创建，之后复用。
+# 避免每次上传/删除都重连 ChromaDB（重连会反复加载 embedding function，批量上传时明显变慢）。
+_client = None
+_collection = None
+
 
 def get_collection():
-    """获取知识库 collection（不存在则创建）。"""
-    client = chromadb.PersistentClient(path=KB_DIR)
-    return client.get_or_create_collection(
-        name=KB_COLLECTION,
-        embedding_function=BgeEmbeddingFunction(),
-        metadata={"hnsw:space": "cosine"},
-    )
+    """获取知识库 collection（懒加载，进程内复用同一个实例）。"""
+    global _client, _collection
+    if _collection is None:
+        _client = chromadb.PersistentClient(path=KB_DIR)
+        _collection = _client.get_or_create_collection(
+            name=KB_COLLECTION,
+            embedding_function=BgeEmbeddingFunction(),
+            metadata={"hnsw:space": "cosine"},
+        )
+    return _collection
 
 
 def upsert_file_chunks(filename: str, chunks: list[str], md5: str) -> int:
