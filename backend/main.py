@@ -30,11 +30,12 @@ async def on_startup():
 from backend.api.ai import router as ai_router
 from backend.api.documents import router as doc_router
 from backend.api.tasks import router as tasks_router
+from backend.api.kb import router as kb_router
 
 app.include_router(ai_router)
 app.include_router(doc_router)
 app.include_router(tasks_router)
-
+app.include_router(kb_router)
 
 @app.get("/")
 async def root():

@@ -131,6 +131,11 @@ def get_retriever() -> Retriever:
         _retriever = Retriever()
     return _retriever
 
+def reset_retriever() -> None:
+    """知识库重建后调用，让下次 get_retriever() 重新加载。"""
+    global _retriever
+    _retriever = None
+
 
 if __name__ == "__main__":
     # 自测：几个典型问题，验证混合检索
