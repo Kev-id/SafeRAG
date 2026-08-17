@@ -36,18 +36,26 @@ def _build_messages(template: PromptTemplate, original_text: str, requirements: 
     ]
 
 
-def _retrieve_context(original_text: str, top_k: int = 5) -> str:
-    """检索相关法规条文，拼成一段文本。
+def _retrieve_context(original_text: str, top_k: int = 5) -> tuple[str, list[str]]:
+    """检索相关法规，返回 (带编号的 context 文本, 来源清单)。
 
-    检索失败时返回空串，降级为"不注入法规"的纯 LLM 生成，
-    保证知识库未建好或不可用时，报告生成功能仍能工作。
+    context 每条法规带 [编号]（来源：文件 第N条），供模型在报告里标注引用；
+    sources 是 [编号]→来源 的清单，拼到报告末尾做「参考法规来源」附录，实现可追溯。
+    检索失败返回 ("", [])，降级为"不注入法规"的纯 LLM 生成。
     """
     try:
         hits = get_retriever().retrieve(original_text, top_k=top_k)
-        return "\n".join(f"- {h['text']}" for h in hits)
     except Exception:
         logger.exception("检索知识库失败，降级为不注入法规")
-        return ""
+        return "", []
+
+    context_lines, source_lines = [], []
+    for i, h in enumerate(hits, 1):
+        src = h["meta"].get("source", "?")
+        chunk = h["meta"].get("chunk", "?")
+        context_lines.append(f"[{i}]（{src} 第{chunk}条）{h['text']}")
+        source_lines.append(f"[{i}] {src} 第{chunk}条：{h['text']}")
+    return "\n".join(context_lines), source_lines
 
 
 async def create_document(task_type, original_text,requirements, output_filename) -> Document:
@@ -70,7 +78,7 @@ async def run_inference(doc_id:str) -> None:
         return
     template = get_template(doc.task_type)
     try:
-        context = _retrieve_context(doc.original_text)  # RAG：先检索相关法规
+        context, sources = _retrieve_context(doc.original_text)  # RAG：先检索相关法规
         messages = _build_messages(template,doc.original_text,doc.requirements,context)
         raw = await qwen_chat(messages)
     except Exception:
@@ -78,7 +86,13 @@ async def run_inference(doc_id:str) -> None:
         doc.status = DocStatus.FAILED
         update(doc)
         return
-    doc.report_content = raw.strip()
+
+    # 报告正文 + 末尾追加「参考法规来源」清单，实现引用可追溯
+    report = raw.strip()
+    if sources:
+        report += "\n\n---\n\n## 参考法规来源\n" + "\n".join(sources)
+
+    doc.report_content = report
     doc.status = DocStatus.COMPLETED
     doc.completed_at = datetime.now(timezone.utc).isoformat()
     update(doc)

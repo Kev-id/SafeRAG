@@ -46,8 +46,12 @@ def main() -> None:
     print()
     print("② _retrieve_context 返回值（服务里注入用的就是它）")
     print("-" * 60)
-    context = _retrieve_context(text, top_k=5)
+    context, sources = _retrieve_context(text, top_k=5)
     print(context if context.strip() else "  ❌ 空串 —— _retrieve_context 降级了")
+    print()
+    print("   —— 报告末尾会追加的「参考法规来源」清单 ——")
+    for s in sources:
+        print(f"     {s}")
 
     print()
     print("③ 拼出的完整 user prompt（= 发给模型的文字）")

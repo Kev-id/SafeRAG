@@ -39,7 +39,7 @@ TEMPLATES: dict[str, PromptTemplate] = {
 【处理要求】
 {requirements}
 
-【相关法规条文（必须依据）】
+【相关法规条文（必须依据，引用时请标注对应 [编号]）】
 {context}
 
 请按以下结构输出报告（使用 Markdown 格式）：
@@ -65,7 +65,7 @@ TEMPLATES: dict[str, PromptTemplate] = {
 【排查要求】
 {requirements}
 
-【相关法规条文（必须依据）】
+【相关法规条文（必须依据，引用时请标注对应 [编号]）】
 {context}
 
 请按以下结构输出报告（使用 Markdown 格式）：
@@ -92,7 +92,7 @@ TEMPLATES: dict[str, PromptTemplate] = {
 【编制要求】
 {requirements}
 
-【相关法规条文（必须依据）】
+【相关法规条文（必须依据，引用时请标注对应 [编号]）】
 {context}
 
 请按以下结构输出预案（使用 Markdown 格式）：
