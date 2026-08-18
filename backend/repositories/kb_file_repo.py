@@ -98,7 +98,7 @@ def delete(filename: str) -> bool:
         conn.close()
     return deleted
 
-def get_stats() -> dict:
+async def get_stats() -> dict:
     """获取知识库统计信息"""
     conn = get_connection()
     try:
