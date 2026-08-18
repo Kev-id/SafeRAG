@@ -63,3 +63,21 @@ def init_db() -> None:
         logger.info("数据库初始化完成: %s", _DB_PATH)
     finally:
         conn.close()
+
+def check_database_health(db_path=_DB_PATH) -> bool:
+    try:
+        # 连接到数据库
+        conn = sqlite3.connect(db_path)
+        # 执行快速健康检查
+        result = conn.execute("PRAGMA quick_check;").fetchone()[0]
+        conn.close()
+        
+        if result == "ok":
+            logging.info("Database health check passed.")
+            return True
+        else:
+            logging.error(f"Integrity issue detected: {result}")
+            return False
+    except Exception as e:
+        logging.critical(f"Cannot access database: {str(e)}")
+        return False

@@ -62,3 +62,14 @@ def delete_file_chunks(filename: str) -> None:
         collection.delete(where={"source": filename})
     except Exception:
         logger.debug("删除 %s 块时无匹配，忽略", filename)
+
+
+def check_chroma_health() -> bool:
+    """检查 ChromaDB 是否可用（collection 可访问）。"""
+    try:
+        collection = get_collection()
+        _ = collection.count()
+        return True
+    except Exception as e:
+        logger.error("ChromaDB 健康检查失败: %s", e)
+        return False
