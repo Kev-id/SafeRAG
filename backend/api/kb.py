@@ -83,7 +83,7 @@ async def delete_file(filename: str):
 @router.get("/kb/stats", response_model=KbStatsResponse)
 async def get_kb_stats():
     """获取知识库统计信息"""
-    return await knowledge_service.get_stats()
+    return knowledge_service.get_stats()
 
 
 
