@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/v1")
 
 class ProcessRequest(BaseModel):
     task_type: str = Field(..., min_length=1, max_length=50)
-    original_text: str = Field(..., min_length=1, max_length=1000)
+    original_text: str = Field(..., min_length=1, max_length=4000)
     requirements: str = Field(..., min_length=1, max_length=1000)
     output_filename: str = Field(..., min_length=1, max_length=100)
 
