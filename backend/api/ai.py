@@ -16,4 +16,4 @@ class AIStatusResponse(BaseModel):
 
 @router.get("/ai/status", response_model=AIStatusResponse)
 async def ai_status():
-    return ai_service.get_status()
+    return await ai_service.get_status()
