@@ -5,7 +5,12 @@ import os
 # ---- Qwen 推理引擎 ----
 QWEN_BASE_URL = os.getenv("QWEN_BASE_URL", "http://127.0.0.1:8000")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "tpu-qwen3.5")
-QWEN_TIMEOUT = int(os.getenv("QWEN_TIMEOUT", "300"))
+# 连接超时：局域网内应 <1s，设 5s 防误报
+QWEN_CONNECT_TIMEOUT = int(os.getenv("QWEN_CONNECT_TIMEOUT", "5"))
+# 读超时：8K 上下文模型长推理可能几十秒到几分钟，设 600s
+QWEN_READ_TIMEOUT = int(os.getenv("QWEN_READ_TIMEOUT", "600"))
+# 单次生成的最大 token 数：封顶最坏耗时（配合推理引擎的 max_tokens）
+QWEN_MAX_TOKENS = int(os.getenv("QWEN_MAX_TOKENS", "4096"))
 
 # ---- Embedding 模型（RAG 检索用）----
 EMBEDDING_MODEL_PATH = os.getenv("EMBEDDING_MODEL_PATH", "/data2/models/bge-small-zh-v1.5")

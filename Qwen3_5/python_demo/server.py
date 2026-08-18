@@ -13,6 +13,7 @@
 # Dependencies: fastapi, uvicorn, pydantic  (pip install fastapi uvicorn)
 # ==============================================================================
 
+import asyncio
 import time
 import uuid
 import sys
@@ -116,7 +117,7 @@ def _strip_thinking(text: str) -> str:
 # OpenAI-compatible inference
 # ---------------------------------------------------------------------------
 
-def run_chat(messages: List[ChatMessage]) -> str:
+def run_chat(messages: List[ChatMessage], max_tokens: Optional[int] = None) -> str:
     """
     Stateless multi-turn inference.
 
@@ -162,7 +163,11 @@ def run_chat(messages: List[ChatMessage]) -> str:
         tok_num = 0
         im_end = m.ID_IM_END
 
-        while token != im_end and m.model.history_length < m.model.SEQLEN:
+        while (
+            token != im_end
+            and m.model.history_length < m.model.SEQLEN
+            and (max_tokens is None or tok_num < max_tokens)
+        ):
             full_word_tokens.append(token)
             word = m.tokenizer.decode(full_word_tokens, skip_special_tokens=True)
             if "�" not in word:
@@ -185,7 +190,7 @@ def run_chat(messages: List[ChatMessage]) -> str:
     return _strip_thinking(text)
 
 
-def run_chat_stream(messages: List[ChatMessage], model_name: str, chat_id: str):
+def run_chat_stream(messages: List[ChatMessage], model_name: str, chat_id: str, max_tokens: Optional[int] = None):
     """SSE generator — yields "data: {...}\n\n" lines for streaming."""
     m = get_model()
     created = int(time.time())
@@ -233,7 +238,11 @@ def run_chat_stream(messages: List[ChatMessage], model_name: str, chat_id: str):
         )
         yield f"data: {first_chunk.model_dump_json()}\n\n"
 
-        while token != im_end and m.model.history_length < m.model.SEQLEN:
+        while (
+            token != im_end
+            and m.model.history_length < m.model.SEQLEN
+            and (max_tokens is None or tok_num < max_tokens)
+        ):
             full_word_tokens.append(token)
             word = m.tokenizer.decode(full_word_tokens, skip_special_tokens=True)
             if "�" not in word:
@@ -276,8 +285,8 @@ app = FastAPI(title="Qwen3.5 Text API", version="1.0.0")
 
 @app.get("/health")
 async def health():
-    """Health check."""
-    return {"status": "ok"}
+    """Health check. busy 表示引擎正在跑推理（模型锁被持有）。"""
+    return {"status": "ok", "busy": _model_lock.locked()}
 
 
 # ---------------------------------------------------------------------------
@@ -311,12 +320,14 @@ async def chat_completions(req: ChatCompletionRequest):
 
     if req.stream:
         return StreamingResponse(
-            run_chat_stream(req.messages, req.model, chat_id),
+            run_chat_stream(req.messages, req.model, chat_id, req.max_tokens),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache"},
         )
 
-    text = run_chat(req.messages)
+    # run_chat 是 CPU 密集的同步函数：丢线程池执行，避免推理期间阻塞事件循环
+    #（否则 /health 等其他请求会跟着卡住，ai_status 一查就超时）
+    text = await asyncio.to_thread(run_chat, req.messages, req.max_tokens)
     return ChatCompletionResponse(
         id=chat_id,
         created=int(time.time()),

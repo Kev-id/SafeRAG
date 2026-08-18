@@ -10,6 +10,7 @@ router = APIRouter(prefix="/api/v1")
 
 class AIStatusResponse(BaseModel):
     qwen_reachable: bool
+    qwen_busy: bool | None = None
     qwen_url: str
     message: str
 

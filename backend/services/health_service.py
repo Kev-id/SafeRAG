@@ -10,10 +10,11 @@ async def get_health_status() -> dict:
     sqlite_health = check_database_health()
     chroma_health = check_chroma_health()
 
-    status = "ok" if sqlite_health and qwen_health and chroma_health else "degraded"
+    qwen_ok = qwen_health["reachable"]
+    status = "ok" if sqlite_health and qwen_ok and chroma_health else "degraded"
     return {
         "status": status,
         "sqlite": sqlite_health,
-        "qwen": qwen_health,
+        "qwen": qwen_ok,
         "chroma": chroma_health,
     }
