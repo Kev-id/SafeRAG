@@ -55,6 +55,11 @@ class DocumentDetail(BaseModel):
     created_at: str
     completed_at: str | None = None
 
+class DocumentStatsResponse(BaseModel):
+    queued: int
+    processing: int
+    completed: int
+    failed: int
 
 # ---------------------------------------------------------------------------
 # 端点
@@ -164,3 +169,15 @@ async def delete(doc_id: str):
         await document_service.delete_document(doc_id)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/documents/stats", response_model=DocumentStatsResponse)
+async def get_document_stats():
+    """获取文档处理统计信息"""
+    stats = await document_service.get_stats()
+    return DocumentStatsResponse(
+        queued=stats["queued"],
+        processing=stats["processing"],
+        completed=stats["completed"],
+        failed=stats["failed"],
+    )

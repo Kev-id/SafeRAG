@@ -161,3 +161,12 @@ async def delete_document(doc_id: str) -> bool:
     if doc is None:
         raise FileNotFoundError(f"文档不存在: {doc_id}")
     return delete(doc_id)
+
+async def get_stats() -> dict:
+    """获取文档统计信息"""
+    return {
+        "queued": count(DocStatus.QUEUED),
+        "processing": count(DocStatus.PROCESSING),
+        "completed": count(DocStatus.COMPLETED),
+        "failed": count(DocStatus.FAILED),
+    }
