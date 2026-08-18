@@ -1,15 +1,15 @@
-"""业务层 — 文档处理核心逻辑。
+"""业务层 — 健康检查。"""
 
-
-"""
 from backend.core.qwen_client import check_health
 from backend.core.database import check_database_health
 from backend.core.kb_store import check_chroma_health
 
-async def get_health_status():
+
+async def get_health_status() -> dict:
     qwen_health = await check_health()
     sqlite_health = check_database_health()
     chroma_health = check_chroma_health()
+
     status = "ok" if sqlite_health and qwen_health and chroma_health else "degraded"
     return {
         "status": status,

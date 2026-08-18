@@ -84,10 +84,3 @@ async def delete_file(filename: str):
 async def get_kb_stats():
     """获取知识库统计信息"""
     return knowledge_service.get_stats()
-
-
-
-        
-    
-    
-    

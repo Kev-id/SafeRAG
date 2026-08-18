@@ -1,13 +1,17 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+from backend.services import health_service
 
 router = APIRouter(prefix="/api/v1")
-from pydantic import BaseModel
-from backend.services import health_service
+
+
 class HealthResponse(BaseModel):
     status: str
     sqlite: bool
     qwen: bool
     chroma: bool
+
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
