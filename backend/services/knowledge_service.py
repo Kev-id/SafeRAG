@@ -119,6 +119,6 @@ async def get_kb_file(filename: str) -> dict:
         kf["content"] = None
     return kf
 
-async def get_stats() -> dict:
+def get_stats() -> dict:
     """获取知识库统计信息"""
-    return await kb_file_repo.get_stats()
+    return  kb_file_repo.get_stats()
