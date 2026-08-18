@@ -1,8 +1,10 @@
-"""业务层 — 文档处理核心逻辑。
+"""业务层 — 文档处理核心逻辑（SQLite 任务队列）。
 
-流程: 保存 → 拼 Prompt → 调 Qwen → 存储结果
+队列 = documents 表，status 是唯一真相：queued → processing → completed/failed。
+HTTP 只建记录 + 唤醒；常驻 worker 协程认领 queued 任务，单协程串行处理。
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -18,9 +20,14 @@ from backend.repositories.document_repo import (
     list_all,
     count,
     delete,
+    claim_next,
 )
 
 logger = logging.getLogger(__name__)
+
+# 唤醒信号：新任务入队时 set()，worker 从等待中醒来。
+# 只是闹钟，不是正确性依赖——任务真相在 SQLite 表里，事件丢了也不丢任务。
+_wake = asyncio.Event()
 
 
 def _build_messages(template: PromptTemplate, original_text: str, requirements: str, context: str = "") -> list[dict]:
@@ -59,30 +66,31 @@ def _retrieve_context(original_text: str, top_k: int = 5) -> tuple[str, list[str
 
 
 async def create_document(task_type, original_text,requirements, output_filename) -> Document:
-    """只建记录 + 标记 processing，不碰模型，立即返回。"""
+    """只建记录 + 标记 queued，不碰模型，立即返回。"""
     template = get_template(task_type)
     doc = Document(
         original_text=original_text,
         requirements=requirements,
         output_filename=output_filename,
         task_type=task_type,
+        status=DocStatus.QUEUED,
     )
     save(doc)
-    doc.status = DocStatus.PROCESSING
-    update(doc)
+    _wake.set()  # 唤醒 worker 来取（队列空了才真睡，多余 set 无害）
     return doc
 
-async def run_inference(doc_id:str) -> None:
-    doc = get(doc_id)
-    if doc is None:
-        return
+async def _process_document(doc: Document) -> None:
+    """处理一条已认领的任务：检索 → 调 Qwen → 存结果。异常置 failed。
+
+    processing 状态由 claim_next 原子写入，这里只跑内容，不再改状态。
+    """
     template = get_template(doc.task_type)
     try:
         context, sources = _retrieve_context(doc.original_text)  # RAG：先检索相关法规
-        messages = _build_messages(template,doc.original_text,doc.requirements,context)
+        messages = _build_messages(template, doc.original_text, doc.requirements, context)
         raw = await qwen_chat(messages)
     except Exception:
-        logger.exception("推理失败: doc_id=%s", doc_id)
+        logger.exception("推理失败: doc_id=%s", doc.id)
         doc.status = DocStatus.FAILED
         update(doc)
         return
@@ -96,6 +104,22 @@ async def run_inference(doc_id:str) -> None:
     doc.status = DocStatus.COMPLETED
     doc.completed_at = datetime.now(timezone.utc).isoformat()
     update(doc)
+
+
+async def worker() -> None:
+    """常驻消费协程：认领下一条 queued → 处理 → 取下一条。
+
+    单协程天然串行，替代原来的 asyncio.Lock。没任务时睡在 _wake 上，
+    被新任务唤醒；事件丢失也不影响——表里的任务下一轮必被认领。
+    """
+    logger.info("文档处理 worker 已启动")
+    while True:
+        doc = claim_next()
+        if doc is None:
+            await _wake.wait()
+            _wake.clear()
+            continue
+        await _process_document(doc)
 
 async def get_detail(doc_id: str) -> Document:
     """获取文档详情。"""

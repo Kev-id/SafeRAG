@@ -3,7 +3,6 @@ GET    /api/v1/documents
 GET    /api/v1/documents/{id}
 GET    /api/v1/documents/{id}/download
 """
-import asyncio
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -63,7 +62,7 @@ class DocumentDetail(BaseModel):
 
 @router.get("/documents", response_model=DocumentListResponse)
 async def list_documents(
-    status: str | None = Query(None, description="按状态过滤: pending/processing/completed/failed"),
+    status: str | None = Query(None, description="按状态过滤: pending/queued/processing/completed/failed"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页条数"),
 ):
@@ -76,7 +75,7 @@ async def list_documents(
         except ValueError:
             raise HTTPException(
                 status_code=422,
-                detail=f"无效的状态值: {status}，允许: pending/processing/completed/failed",
+                detail=f"无效的状态值: {status}，允许: pending/queued/processing/completed/failed",
             )
 
     result = await document_service.list_documents(
@@ -114,8 +113,8 @@ async def process(req: ProcessRequest):
         )
     except KeyError:
         raise HTTPException(status_code=422, detail=f"无效的任务类型: {req.task_type}")
-    
-    asyncio.create_task(document_service.run_inference(doc.id))
+
+    # 只建记录，worker 协程会自己认领处理（见 document_service.worker）
     return ProcessResponse(
         id=doc.id,
         status=doc.status.value,

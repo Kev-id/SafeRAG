@@ -29,6 +29,7 @@ ROOT = os.path.join(DATA_DIR, "documents")
 
 class DocStatus(str, Enum):
     PENDING = "pending"
+    QUEUED = "queued"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -61,6 +62,20 @@ class Document:
 def _doc_dir(doc_id: str) -> str:
     """文档的文件目录（只存报告 .md）。"""
     return os.path.join(ROOT, doc_id)
+
+
+def _row_to_doc(row) -> Document:
+    """把 sqlite3.Row 转成 Document（认领/查询复用）。"""
+    return Document(
+        id=row["id"],
+        output_filename=row["output_filename"],
+        requirements=row["requirements"],
+        original_text=row["original_text"],
+        task_type=row["task_type"],
+        status=DocStatus(row["status"]),
+        created_at=row["created_at"],
+        completed_at=row["completed_at"],
+    )
 
 
 def save(doc: Document) -> Document:
@@ -238,4 +253,49 @@ def delete(doc_id: str) -> bool:
     shutil.rmtree(doc_path, ignore_errors=True)
     logger.info("文档 %s 已删除", doc_id)
     return deleted
+
+
+def claim_next() -> Document | None:
+    """原子认领下一条排队任务：queued → processing。
+
+    用 BEGIN IMMEDIATE 把 SELECT + UPDATE 包进一个写事务：
+    即使将来有多个 worker 并发，也只有一条能抢到同一行。
+    队列为空返回 None。
+    """
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            """SELECT * FROM documents
+               WHERE status = 'queued'
+               ORDER BY created_at
+               LIMIT 1"""
+        ).fetchone()
+        if row is None:
+            conn.rollback()
+            return None
+        conn.execute(
+            "UPDATE documents SET status = 'processing' WHERE id = ?",
+            (row["id"],),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return _row_to_doc(row)
+
+
+def recover_stuck() -> int:
+    """启动恢复：把上次进程退出时卡在 processing 的任务捞回 queued。
+
+    返回被恢复的任务数。queued/completed/failed 不受影响。
+    """
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE documents SET status = 'queued' WHERE status = 'processing'"
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
 
