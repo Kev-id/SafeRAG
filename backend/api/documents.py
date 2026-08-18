@@ -64,6 +64,17 @@ class DocumentStatsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # 端点
 # ---------------------------------------------------------------------------
+@router.get("/documents/stats", response_model=DocumentStatsResponse)
+async def get_document_stats():
+    """获取文档处理统计信息"""
+    stats = await document_service.get_stats()
+    return DocumentStatsResponse(
+        queued=stats["queued"],
+        processing=stats["processing"],
+        completed=stats["completed"],
+        failed=stats["failed"],
+    )
+
 
 @router.get("/documents", response_model=DocumentListResponse)
 async def list_documents(
@@ -171,13 +182,3 @@ async def delete(doc_id: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/documents/stats", response_model=DocumentStatsResponse)
-async def get_document_stats():
-    """获取文档处理统计信息"""
-    stats = await document_service.get_stats()
-    return DocumentStatsResponse(
-        queued=stats["queued"],
-        processing=stats["processing"],
-        completed=stats["completed"],
-        failed=stats["failed"],
-    )
