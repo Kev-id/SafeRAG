@@ -110,9 +110,15 @@ def get_stats() -> dict:
         ).fetchall()
     finally:
         conn.close()
+    counts = {
+        "ready": 0,
+        "failed": 0,
+        "building": 0,
+    }
+    counts.update({r["status"]: r["count"] for r in status_counts})
     return {
         "file_count": row["file_count"] or 0,
         "chunk_count": row["chunk_count"] or 0,
         "total_size": row["total_size"] or 0,
-        "status_counts": {r["status"]: r["count"] for r in status_counts},
+        "status_counts": counts,
     }
