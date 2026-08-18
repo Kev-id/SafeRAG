@@ -4,8 +4,8 @@ from backend.core.qwen_client import check_health
 from backend.core.config import QWEN_BASE_URL
 
 
-async def get_status() -> dict:
-    reachable = await check_health()
+def get_status() -> dict:
+    reachable =check_health()
     return {
         "qwen_reachable": reachable,
         "qwen_url": QWEN_BASE_URL,
