@@ -31,7 +31,7 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
 
     返回汇总 dict: {"chunks", "files", "updated", "skipped"}。
     """
-    registered = kb_file_repo.list_all()
+    registered = kb_file_repo.list_files()
     if not registered:
         print("登记册为空，跳过（请先用上传接口添加文件）")
         return {"chunks": 0, "files": 0, "updated": 0, "skipped": 0}
