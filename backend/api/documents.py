@@ -161,7 +161,13 @@ async def get_document(doc_id: str):
 @router.post("/documents/{doc_id}/retry", response_model=ProcessResponse)
 async def retry(doc_id: str):
     """重试处理失败的文档（只允许失败状态的文档重试）。"""
-    doc = await document_service.retry_document(doc_id)
+    try:
+        doc = await document_service.retry_document(doc_id)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
     return ProcessResponse(
         id=doc.id,
         status=doc.status.value,
