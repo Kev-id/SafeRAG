@@ -66,7 +66,11 @@ text = await asyncio.to_thread(run_chat, req.messages, req.max_tokens)
 
 ### 3. 超时拆分
 
-连接超时（建立 TCP/HTTP 连接）应该短（局域网 5s 足够），读超时（等响应/推理完成）应该长（8K 模型按实际耗时定）。httpx 支持 `httpx.Timeout(connect=5, read=600)` 分别设置。
+连接超时（建立 TCP/HTTP 连接）应该短（局域网 5s 足够），读超时（等响应/推理完成）应该长（8K 模型按实际耗时定）。httpx 要求 `Timeout` 要么传默认值、要么四个参数全设，用"默认值 + 单独覆盖 read"即可：
+
+```python
+httpx.Timeout(5, read=600)   # connect/write/pool = 5s，read = 600s
+```
 
 ### 4. max_tokens 封顶生成
 

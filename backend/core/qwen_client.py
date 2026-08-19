@@ -31,7 +31,7 @@ def _get_client() -> httpx.AsyncClient:
     if _client is None:
         _client = httpx.AsyncClient(
             base_url=QWEN_BASE_URL,
-            timeout=httpx.Timeout(connect=QWEN_CONNECT_TIMEOUT, read=QWEN_READ_TIMEOUT),
+            timeout=httpx.Timeout(QWEN_CONNECT_TIMEOUT, read=QWEN_READ_TIMEOUT),
         )
     return _client
 
