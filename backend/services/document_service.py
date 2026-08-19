@@ -172,7 +172,7 @@ async def get_stats() -> dict:
         "failed": count(DocStatus.FAILED),
     }
 
-async def retry_document(doc_id: str) -> None:
+async def retry_document(doc_id: str) -> Document:
     doc = get(doc_id)
     if doc is None:
         raise FileNotFoundError(f"文档不存在: {doc_id}")
@@ -182,3 +182,5 @@ async def retry_document(doc_id: str) -> None:
     doc.completed_at = None
     update(doc)
     _wake.set()
+
+    return doc
