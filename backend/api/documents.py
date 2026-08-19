@@ -158,6 +158,17 @@ async def get_document(doc_id: str):
         completed_at=doc.completed_at,
     )
 
+@router.post("/documents/{doc_id}/retry", response_model=ProcessResponse)
+async def retry(doc_id: str):
+    """重试处理失败的文档（只允许失败状态的文档重试）。"""
+    doc = await document_service.retry_document(doc_id)
+    return ProcessResponse(
+        id=doc.id,
+        status=doc.status.value,
+        output_filename=doc.report_filename,
+        message="已重新排队处理",
+    )
+
 
 @router.get("/documents/{doc_id}/download")
 async def download(doc_id: str):
