@@ -229,6 +229,7 @@ def run_chat_stream(messages: List[ChatMessage], model_name: str, chat_id: str, 
         # ---- autoregressive decode ----
         full_word_tokens: List[int] = []
         text = ""
+        tok_num = 0
         im_end = m.ID_IM_END
 
         # First chunk with role
@@ -264,6 +265,7 @@ def run_chat_stream(messages: List[ChatMessage], model_name: str, chat_id: str, 
                 [m.max_posid, m.max_posid, m.max_posid], dtype=np.int32
             )
             token = m.model.forward_next(position_ids)
+            tok_num += 1
 
         m.history_max_posid = m.max_posid + 2
 
