@@ -86,7 +86,8 @@ async def _process_document(doc: Document) -> None:
     """
     template = get_template(doc.task_type)
     try:
-        context, sources = _retrieve_context(doc.original_text)  # RAG：先检索相关法规
+        # 检索是 CPU 密集（jieba + BM25 + embedding），丢线程池，别阻塞事件循环
+        context, sources = await asyncio.to_thread(_retrieve_context, doc.original_text)
         messages = _build_messages(template, doc.original_text, doc.requirements, context)
         raw = await qwen_chat(messages)
     except Exception:
