@@ -23,12 +23,17 @@ import jieba
 from rank_bm25 import BM25Okapi
 
 from backend.core.config import KB_COLLECTION, KB_DIR
-from backend.core.embedding_client import BgeEmbeddingFunction
+from backend.core.embedding_client import BgeEmbeddingFunction, tokenize_with_offsets
 
 logger = logging.getLogger(__name__)
 
 # RRF 常数：决定 rank 的衰减速度，60 是业界常用值
 RRF_K = 60
+
+# BGE 位置编码上限：query 超此 token 数必须分段，否则 embedding 失效
+MAX_QUERY_TOKENS = 512
+# 每段 token 上限：留余量，避免切分后重编码漂移超出 512
+SEG_TOKENS = 480
 
 # jieba 首次加载词典会往 stderr 打印进度，静音
 jieba.setLogLevel(logging.WARNING)
@@ -79,10 +84,31 @@ class Retriever:
         ranked = sorted(range(len(scores)), key=lambda i: -scores[i])[:top_n]
         return [self._ids[i] for i in ranked]
 
+    def _split_query(self, query: str) -> list[str]:
+        """把超长 query 按 token 边界切成 ≤512 的段；短 query 原样返回。"""
+        spans = tokenize_with_offsets(query)
+        if len(spans) <= MAX_QUERY_TOKENS:
+            return [query]
+        segments = []
+        for i in range(0, len(spans), SEG_TOKENS):
+            chunk = spans[i:i + SEG_TOKENS]
+            segments.append(query[chunk[0][0]:chunk[-1][1]])
+        logger.info("query 超长，分段检索: %d 段", len(segments))
+        return segments
+
     def _vector_ids(self, query: str, top_n: int) -> list[str]:
-        """向量语义检索，返回按相似度排序的 doc id。"""
-        res = self._collection.query(query_texts=[query], n_results=top_n)
-        return res["ids"][0]
+        """向量语义检索：超长 query 按 token 分段查询后合并去重。"""
+        all_ids: list[str] = []
+        seen: set[str] = set()
+        for seg in self._split_query(query):
+            res = self._collection.query(query_texts=[seg], n_results=top_n)
+            for doc_id in res["ids"][0]:
+                if doc_id not in seen:
+                    seen.add(doc_id)
+                    all_ids.append(doc_id)
+            if len(all_ids) >= top_n:
+                break
+        return all_ids[:top_n]
 
     # ------------------------------------------------------------------
     # RRF 融合

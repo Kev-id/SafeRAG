@@ -71,14 +71,29 @@ def _encode_batch(texts: list[str]) -> tuple[list[list[int]], list[list[int]], l
     return input_ids, attention_mask, token_type_ids
 
 
+def tokenize_with_offsets(text: str) -> list[tuple[int, int]]:
+    """返回文本每个有效 token 的字符区间（跳过 [CLS]/[SEP] 等特殊 token）。
+
+    用途：BGE 位置编码上限 512 token，超长 query 要按 token 边界切成多段，
+    每段用 query[start:end] 从原文精确切片，避免切碎词、保证重编码后仍 ≤512。
+    """
+    _ensure_loaded()
+    enc = _tokenizer.encode(text)
+    spans = []
+    for start, end in enc.offsets:
+        if end > start:  # 特殊 token 的 offset 是 (0,0)，跳过
+            spans.append((start, end))
+    return spans
+
+
 def embed(texts: str | list[str]) -> np.ndarray:
     """把文本向量化，返回 shape=(n, dim) 的 L2 归一化向量。
 
     归一化后，向量点积 == 余弦相似度，可直接用于检索。
-    """
+    """    
     if isinstance(texts, str):
         texts = [texts]
-    _ensure_loaded()
+        _ensure_loaded()
 
     input_ids, attention_mask, token_type_ids = _encode_batch(texts)
 
