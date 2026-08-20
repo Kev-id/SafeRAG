@@ -93,7 +93,7 @@ def embed(texts: str | list[str]) -> np.ndarray:
     """    
     if isinstance(texts, str):
         texts = [texts]
-        _ensure_loaded()
+    _ensure_loaded()
 
     input_ids, attention_mask, token_type_ids = _encode_batch(texts)
 
