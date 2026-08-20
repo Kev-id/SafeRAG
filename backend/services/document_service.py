@@ -107,20 +107,30 @@ async def _process_document(doc: Document) -> None:
     update(doc)
 
 
-async def worker() -> None:
+async def worker(worker_id: int = 0) -> None:
     """常驻消费协程：认领下一条 queued → 处理 → 取下一条。
 
-    单协程天然串行，替代原来的 asyncio.Lock。没任务时睡在 _wake 上，
-    被新任务唤醒；事件丢失也不影响——表里的任务下一轮必被认领。
+    worker_id 只用于日志区分。多个 worker 并发消费同一队列，靠 claim_next()
+    的 BEGIN IMMEDIATE 原子认领保证不抢同一行。_wake 只是闹钟：
+    asyncio.Event.set() 会唤醒全部在等的 worker，先醒的 clear() 不会让后醒的
+    错过（future 在 set() 瞬间已 resolve），惊群代价只是多一次返回 None 的
+    claim_next()。任务真相在 SQLite 表里，事件丢了也不丢任务。
     """
-    logger.info("文档处理 worker 已启动")
+    logger.info("文档处理 worker[%d] 已启动", worker_id)
     while True:
-        doc = claim_next()
-        if doc is None:
-            await _wake.wait()
-            _wake.clear()
-            continue
-        await _process_document(doc)
+        try:
+            doc = claim_next()
+            if doc is None:
+                await _wake.wait()
+                _wake.clear()
+                continue
+            logger.info("worker[%d] 认领任务 doc_id=%s", worker_id, doc.id)
+            await _process_document(doc)
+        except Exception:
+            # 兜底：单 worker 崩溃 = 整条流水线停；多 worker 崩溃 = 静默降容。
+            # 捕获 + 小退避，保证一次偶发异常不会永久杀死该 worker。
+            logger.exception("worker[%d] 循环异常，0.5s 后继续", worker_id)
+            await asyncio.sleep(0.5)
 
 async def get_detail(doc_id: str) -> Document:
     """获取文档详情。"""

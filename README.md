@@ -58,7 +58,11 @@ SafeRAG/
 # 1. 安装依赖
 pip install -r backend/requirements.txt
 
-# 2. 启动后端（需先确保 Qwen 推理引擎在 :8000 运行）
+# 2. 启动 Qwen 推理引擎（单引擎 :8000，或多引擎引擎池见 scripts/start_engines.sh）
+cd Qwen3_5/python_demo && python server.py -m <bmodel> -c <config> --port 8000
+
+# 3. 启动后端（引擎池时设置 QWEN_BASE_URLS 为逗号分隔的引擎地址列表）
+#    WORKER_COUNT 控制并发 worker 数（默认 2）
 uvicorn backend.main:app --host 0.0.0.0 --port 8080
 ```
 
@@ -66,7 +70,9 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8080
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `QWEN_BASE_URL` | `http://127.0.0.1:8000` | Qwen 推理引擎地址 |
+| `QWEN_BASE_URL` | `http://127.0.0.1:8000` | Qwen 推理引擎地址（单引擎兼容） |
+| `QWEN_BASE_URLS` | 同 `QWEN_BASE_URL` | 引擎池地址列表（逗号分隔，如 `http://127.0.0.1:8000,http://127.0.0.1:8001`） |
+| `WORKER_COUNT` | `2` | 文档处理 worker 数量（并发消费队列） |
 | `QWEN_MODEL` | `tpu-qwen3.5` | 模型名 |
 | `QWEN_TIMEOUT` | `300` | 调用超时（秒） |
 | `DATA_DIR` | `../data` | 数据目录 |

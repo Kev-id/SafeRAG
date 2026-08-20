@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="SafeRAG API", version="0.1.0")
 
 # 启动时初始化数据库 + 拉起文档处理 worker
+from backend.core.config import WORKER_COUNT
 from backend.core.database import init_db
 from backend.repositories import document_repo
 from backend.services import document_service
@@ -34,8 +35,13 @@ async def on_startup():
     recovered = document_repo.recover_stuck()
     if recovered:
         logger.info("已恢复 %d 个卡在 processing 的任务", recovered)
-    # 拉起常驻任务消费 worker（存引用防止被 GC）
-    app.state.worker_task = asyncio.create_task(document_service.worker())
+    # 拉起 WORKER_COUNT 个常驻任务消费 worker（存引用防止被 GC）
+    # 多 worker 并发消费同一队列，轮询打到引擎池的多台引擎，实现并行推理
+    app.state.worker_tasks = [
+        asyncio.create_task(document_service.worker(i))
+        for i in range(WORKER_COUNT)
+    ]
+    logger.info("已启动 %d 个文档处理 worker", WORKER_COUNT)
 
 # 挂载路由
 from backend.api.ai import router as ai_router

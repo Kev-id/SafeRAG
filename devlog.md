@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-08-20
+
+- **多 worker + 引擎池**（feat/engine-pool 分支）：引擎进程内完全串行（`threading.Lock`），要并行只能多进程多端口
+  - 决策：`QWEN_BASE_URLS` 逗号分隔引擎地址列表，`chat()` 轮询选引擎；`WORKER_COUNT` 控制并发 worker（默认 2）
+  - 不做故障转移：引擎挂了任务失败就失败，保持简单
+  - 关键点：每文档 = 一次 chat 调用 → 引擎在任务开始一次性选定，全程固定；轮询在 asyncio 单线程内无 await，原子安全
+  - `_wake` 事件不用改：`Event.set()` 瞬间 resolve 所有 waiters，先醒的 clear 不会让后醒的错过
+  - worker 循环加异常兜底：单 worker 崩溃 = 全停，N worker 崩溃 = 静默降容，不能让它死
+  - 完整 prompt 的 INFO 日志降级为 DEBUG（多 worker 刷屏）
+  - 风险未验证：BM1688 同 devid 多进程能否共用（`scripts/start_engines.sh` 已带回退）；2 worker 并发跑检索/embedding 是否线程安全
+
 ## 2026-08-12
 
 - **SQLite 替代纯文件存储**：元数据和原文进 SQLite，报告 .md 留在文件系统（方便下载）

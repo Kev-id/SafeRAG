@@ -12,6 +12,7 @@ class AIStatusResponse(BaseModel):
     qwen_reachable: bool
     qwen_busy: bool | None = None
     qwen_url: str
+    qwen_urls: list[str] = []  # 引擎池完整地址列表（带默认值，向后兼容）
     message: str
 
 

@@ -5,7 +5,7 @@ import httpx
 import logging
 
 from backend.core.config import (
-    QWEN_BASE_URL,
+    QWEN_BASE_URLS,
     QWEN_MODEL,
     QWEN_CONNECT_TIMEOUT,
     QWEN_READ_TIMEOUT,
@@ -20,48 +20,70 @@ class QwenError(Exception):
     pass
 
 
-# 懒加载单例：复用连接池，避免每次调用都重建 TCP/HTTP 连接。
-# 注意：单例长期复用，用完不能 close（进程退出时自然回收）。
-_client: httpx.AsyncClient | None = None
+# 引擎池：每 URL 一个 AsyncClient（httpx 的 base_url 是 client 级不可变的，必须分开）。
+# 懒加载 + 长期复用，用完不能 close（进程退出时自然回收）。
+_engines: dict[str, httpx.AsyncClient] = {}
+# 轮询游标：asyncio 单线程内"读索引→自增→返回"之间没有 await，相对其它协程是原子的，
+# 所以多个 worker 并发选引擎不会撞到同一台。
+_rr_index = 0
 
 
-def _get_client() -> httpx.AsyncClient:
-    """获取全局复用的 AsyncClient（第一次调用时创建）。"""
-    global _client
-    if _client is None:
-        _client = httpx.AsyncClient(
-            base_url=QWEN_BASE_URL,
+def _get_client(url: str) -> httpx.AsyncClient:
+    """按引擎 URL 取（懒建）对应的 AsyncClient。"""
+    client = _engines.get(url)
+    if client is None:
+        client = httpx.AsyncClient(
+            base_url=url,
             timeout=httpx.Timeout(QWEN_CONNECT_TIMEOUT, read=QWEN_READ_TIMEOUT),
         )
-    return _client
+        _engines[url] = client
+    return client
 
 
-async def check_health() -> dict:
-    """检查 Qwen 推理引擎：返回 {"reachable": bool, "busy": bool | None}。
+def _next_engine() -> tuple[int, str]:
+    """轮询选下一个引擎，返回 (索引, url)。
 
-    reachable = 引擎能否响应 /health；
-    busy = 引擎当前是否正在推理（unreachable 时为 None）。
+    同步执行、无 await，单线程下原子安全。每文档只调一次 chat，
+    所以引擎在任务开始时一次性选定，整个文档处理固定在这台引擎上。
     """
-    try:
-        resp = await _get_client().get("/health")
-    except httpx.RequestError:
-        return {"reachable": False, "busy": None}
-    if resp.status_code != 200:
-        return {"reachable": False, "busy": None}
-    try:
-        busy = bool(resp.json().get("busy", False))
-    except Exception:
-        busy = False
-    return {"reachable": True, "busy": busy}
+    global _rr_index
+    idx = _rr_index % len(QWEN_BASE_URLS)
+    _rr_index += 1
+    return idx, QWEN_BASE_URLS[idx]
+
+
+async def check_engines() -> list[dict]:
+    """逐个健康检查所有引擎。每项: {"url", "reachable", "busy"}。
+
+    reachable = 该引擎能否响应 /health；
+    busy = 该引擎当前是否正在推理（unreachable 时为 None）。
+    """
+    results = []
+    for url in QWEN_BASE_URLS:
+        try:
+            resp = await _get_client(url).get("/health")
+        except httpx.RequestError:
+            results.append({"url": url, "reachable": False, "busy": None})
+            continue
+        if resp.status_code != 200:
+            results.append({"url": url, "reachable": False, "busy": None})
+            continue
+        try:
+            busy = bool(resp.json().get("busy", False))
+        except Exception:
+            busy = False
+        results.append({"url": url, "reachable": True, "busy": busy})
+    return results
 
 
 async def chat(messages: list[dict]) -> str:
     """
-    发送对话给 Qwen，返回 assistant 的回复文本。
+    轮询选一台引擎发送对话给 Qwen，返回 assistant 的回复文本。
 
     Raises:
         QwenError: 连不上、超时或推理出错。
     """
+    engine_idx, url = _next_engine()
     payload = {
         "model": QWEN_MODEL,
         "messages": messages,
@@ -69,14 +91,14 @@ async def chat(messages: list[dict]) -> str:
         "max_tokens": QWEN_MAX_TOKENS,  # 封顶单次生成长度，控制最坏耗时
     }
 
-    logger.info("调用 Qwen，消息数=%d", len(messages))
-    # 调试：打印实际发送给模型的完整 prompt，方便核对 RAG 检索到的法规有没有进去
+    logger.info("调用 Qwen 引擎[%d] %s，消息数=%d", engine_idx, url, len(messages))
+    # 调试：完整 prompt 降为 DEBUG（多引擎高频任务下 INFO 会刷屏），核对 RAG 法规有没有进去
     for i, m in enumerate(messages):
-        logger.info("[发给模型] message[%d] role=%s:\n%s", i, m["role"], m["content"])
+        logger.debug("[发给模型] message[%d] role=%s:\n%s", i, m["role"], m["content"])
 
     start = time.monotonic()
     try:
-        resp = await _get_client().post(
+        resp = await _get_client(url).post(
             "/v1/chat/completions",
             json=payload,
         )
@@ -87,7 +109,7 @@ async def chat(messages: list[dict]) -> str:
     except httpx.RequestError as e:
         raise QwenError(f"无法连接 Qwen 推理引擎: {e}")
     finally:
-        logger.info("Qwen 调用耗时 %.1fs", time.monotonic() - start)
+        logger.info("Qwen[%d] 调用耗时 %.1fs", engine_idx, time.monotonic() - start)
 
     if resp.status_code != 200:
         raise QwenError(f"Qwen 返回 HTTP {resp.status_code}: {resp.text[:300]}")

@@ -14,6 +14,9 @@ Makefile
 # Data（运行时生成：SQLite 数据库 + 文档目录）
 data/
 
+# 引擎启动脚本的运行时日志
+scripts/logs/
+
 # IDE / 本地配置
 .vscode/
 .idea/
