@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="SafeRAG API", version="0.1.0")
 
 # 启动时初始化数据库 + 拉起文档处理 worker
-from backend.core.config import WORKER_COUNT
+from backend.core.config import WORKER_COUNT, QWEN_BASE_URLS
 from backend.core.database import init_db
 from backend.repositories import document_repo
 from backend.services import document_service
@@ -31,6 +31,13 @@ from backend.services import document_service
 @app.on_event("startup")
 async def on_startup():
     init_db()
+    # worker 多于引擎时：多个 worker 会轮询到同一台引擎，推理仍串行
+    if WORKER_COUNT > len(QWEN_BASE_URLS):
+        logger.warning(
+            "WORKER_COUNT(%d) > 引擎数(%d)：多个 worker 会共用同一台引擎，推理仍串行。"
+            "想并行请给 QWEN_BASE_URLS 配多个引擎地址",
+            WORKER_COUNT, len(QWEN_BASE_URLS),
+        )
     # 启动恢复：上次进程退出时卡在 processing 的任务捞回 queued，worker 会接着跑
     recovered = document_repo.recover_stuck()
     if recovered:
