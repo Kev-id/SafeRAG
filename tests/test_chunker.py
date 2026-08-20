@@ -41,3 +41,18 @@ def test_split_text_keeps_paragraph_mode():
     assert chunks[0].startswith("事故经过")
     assert chunks[1].startswith("原因分析")
     assert chunks[2].startswith("整改建议")
+
+
+def test_split_text_separates_inline_article_heads():
+    text = (
+        "第二章 矿山建设的安全保障"
+        "第七条 矿山建设工程的安全设施必须和主体工程同时设计、同时施工、同时投入生产和使用。"
+        "第八条 矿山建设工程的设计文件，必须符合矿山安全规程和行业技术规范。"
+    )
+
+    chunks = split_text(text, max_chars=300)
+
+    assert len(chunks) == 2
+    assert "第七条" in chunks[0]
+    assert "第八条" not in chunks[0]
+    assert "第八条" in chunks[1]

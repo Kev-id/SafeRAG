@@ -15,6 +15,7 @@ MAX_CHUNK_CHARS = 400
 # 法规/标准常见结构头：章 / 节 / 条
 _SECTION_HEAD_RE = re.compile(r"^第[一二三四五六七八九十百千万0-9]+[章节](?:\s|$)")
 _ARTICLE_HEAD_RE = re.compile(r"^第[一二三四五六七八九十百千万0-9]+条(?:\s|$)")
+_LEGAL_BREAK_RE = re.compile(r"(?<!\n)(第[一二三四五六七八九十百千万0-9]+[章节条])")
 
 
 def file_md5(text: str) -> str:
@@ -36,6 +37,11 @@ def read_text(path: str) -> str:
     """读文本文件，自动兼容 utf-8 / gbk / gb18030。"""
     with open(path, "rb") as f:
         return decode_text(f.read())
+
+
+def _normalize_legal_breaks(text: str) -> str:
+    """把行内的章/节/条编号挪到新行，修复 PDF/Word 转文本后的粘连。"""
+    return _LEGAL_BREAK_RE.sub(r"\n\1", text).strip()
 
 
 def _split_long(paragraph: str, max_chars: int) -> list[str]:
@@ -97,6 +103,7 @@ def _split_paragraphs(text: str, max_chars: int) -> list[str]:
 
 def _split_legal_text(text: str, max_chars: int) -> list[str]:
     """按法规结构切块：章/节作为上下文前缀，条作为最小单元。"""
+    text = _normalize_legal_breaks(text)
     lines = [l.strip() for l in text.split("\n")]
     lines = [l for l in lines if l]
 
@@ -148,11 +155,12 @@ def split_text(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
 
     长块统一按句末标点二次切到 max_chars 以内。
     """
-    lines = [l.strip() for l in text.split("\n")]
+    normalized_legal_text = _normalize_legal_breaks(text)
+    lines = [l.strip() for l in normalized_legal_text.split("\n")]
     lines = [l for l in lines if l]
 
     if _looks_like_legal_text(lines):
-        return _split_legal_text(text, max_chars)
+        return _split_legal_text(normalized_legal_text, max_chars)
     if _looks_like_line_items(lines):
         return _split_lines(lines, max_chars)
     return _split_paragraphs(text, max_chars)
