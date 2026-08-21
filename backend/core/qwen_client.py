@@ -1,6 +1,8 @@
 """HTTP 客户端，封装对 Qwen 推理引擎的调用。"""
 
 import time
+from typing import AsyncIterator
+
 import httpx
 import logging
 
@@ -97,3 +99,43 @@ async def chat(messages: list[dict]) -> str:
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError):
         raise QwenError(f"Qwen 返回格式异常: {str(data)[:300]}")
+
+
+async def chat_stream(messages: list[dict]) -> AsyncIterator[str]:
+    """流式对话：逐块透传 Qwen 的 SSE 原始行（`data: {...}\n\n`）。
+
+    转发策略：不改 Qwen 的 chunk，原样 yield 每一行（含 `data: [DONE]`），
+    前端拿到的是和直连 Qwen 完全一致的 OpenAI 兼容 SSE，解析逻辑不用改。
+
+    错误：连接失败/超时/非 200 → 抛 QwenError（在流未开始前由上层转 503/500；
+    流开始后中断 → 由调用方决定怎么收尾）。
+    """
+    payload = {
+        "model": QWEN_MODEL,
+        "messages": messages,
+        "stream": True,
+        "max_tokens": QWEN_MAX_TOKENS,
+    }
+
+    start = time.monotonic()
+    try:
+        async with _get_client().stream(
+            "POST", "/v1/chat/completions", json=payload
+        ) as resp:
+            if resp.status_code != 200:
+                body = (await resp.aread())[:300]
+                raise QwenError(f"Qwen 流式返回 HTTP {resp.status_code}: {body}")
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data:"):
+                    continue  # 跳过空行 / keep-alive / 非 data 行
+                yield line + "\n\n"  # 补回 SSE 空行分隔，原样透传
+                if line.strip() == "data: [DONE]":
+                    break
+    except httpx.ReadTimeout:
+        raise QwenError(f"Qwen 流式读超时（{QWEN_READ_TIMEOUT}s）：生成中段断连")
+    except httpx.ConnectTimeout:
+        raise QwenError("Qwen 连接超时: 引擎未启动或端口不通")
+    except httpx.RequestError as e:
+        raise QwenError(f"无法连接 Qwen 推理引擎: {e}")
+    finally:
+        logger.info("Qwen 流式调用结束，耗时 %.1fs", time.monotonic() - start)

@@ -43,10 +43,11 @@ def _build_messages(template: PromptTemplate, original_text: str, requirements: 
     ]
 
 
-def _retrieve_context(original_text: str, top_k: int = 5) -> tuple[str, list[str]]:
+def retrieve_with_citations(original_text: str, top_k: int = 5) -> tuple[str, list[str]]:
     """检索相关法规，返回 (带编号的 context 文本, 来源清单)。
 
-    context 每条法规带 [编号]（来源：文件 第N条），供模型在报告里标注引用；
+    文档处理和聊天共用的检索入口：
+    context 每条法规带 [编号]（来源：文件 第N条），供模型在回答/报告里标注引用；
     sources 是 [编号]→来源 的清单，拼到报告末尾做「参考法规来源」附录，实现可追溯。
     检索失败返回 ("", [])，降级为"不注入法规"的纯 LLM 生成。
     """
@@ -87,7 +88,7 @@ async def _process_document(doc: Document) -> None:
     template = get_template(doc.task_type)
     try:
         # 检索是 CPU 密集（jieba + BM25 + embedding），丢线程池，别阻塞事件循环
-        context, sources = await asyncio.to_thread(_retrieve_context, doc.original_text)
+        context, sources = await asyncio.to_thread(retrieve_with_citations, doc.original_text)
         messages = _build_messages(template, doc.original_text, doc.requirements, context)
         raw = await qwen_chat(messages)
     except Exception:
