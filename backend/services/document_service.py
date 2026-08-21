@@ -60,8 +60,8 @@ def _retrieve_context(original_text: str, top_k: int = 5) -> tuple[str, list[str
     for i, h in enumerate(hits, 1):
         src = h["meta"].get("source", "?")
         chunk = h["meta"].get("chunk", "?")
-        context_lines.append(f"[{i}]（{src} 第{chunk}条）{h['text']}")
-        source_lines.append(f"[{i}] {src} 第{chunk}条：{h['text']}")
+        context_lines.append(f"[{i}]（{src}）{h['text']}")
+        source_lines.append(f"[{i}] {src} {h['text']}")
     return "\n".join(context_lines), source_lines
 
 
