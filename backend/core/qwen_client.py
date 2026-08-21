@@ -117,6 +117,11 @@ async def chat_stream(messages: list[dict]) -> AsyncIterator[str]:
         "max_tokens": QWEN_MAX_TOKENS,
     }
 
+    logger.info("调用 Qwen（流式），消息数=%d", len(messages))
+    # 调试：打印实际发送给模型的完整 prompt，方便核对 RAG 检索到的法规有没有进去
+    for i, m in enumerate(messages):
+        logger.info("[发给模型] message[%d] role=%s:\n%s", i, m["role"], m["content"])
+
     start = time.monotonic()
     try:
         async with _get_client().stream(
