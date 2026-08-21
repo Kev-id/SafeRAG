@@ -10,23 +10,26 @@
 ### 索引侧（写入）—— 解析与入库两段式，文档树是活合同
 
 ```
-POST /api/v1/kb/files (上传 txt)
-  → knowledge_service.upload_kb_file
-     ① 写磁盘      → data/kb_source/{name}.txt          [文件本体]
-     ② 解析登记    → SQLite kb_files 表 (building)      [文件级权威源]
+POST /api/v1/kb/files (上传文件)
+  → knowledge_service.upload_kb_file            （格式无关，校验后缀白名单 + 大小）
+     ① 写磁盘      → data/kb_source/{name}          [文件本体]
+     ② 解析登记    → SQLite kb_files 表 (building)  [文件级权威源]
 
-     ③ 解析段（文本 → 文档树，合同确立）
-        text → legal_parser.parse_to_tree(text, source, file_type)
-                 法规（章/节/条头足够）  → 章/节/条 层级树
-                 其它文本               → 最简树（单根 article 装整段正文）
-              → kb_tree_repo.save(filename, tree, md5)
-                 落盘 SQLite kb_trees 表                [结构真相源 / 活合同]
+     ③ 解析段（bytes → 文档树，合同确立，按后缀分派）
+        tree, md5 = legal_parser.parse_to_tree(content: bytes, filename, file_type)
+        内部 _extract_text(content, filename)：
+            .txt  → decode_text 自动兼容 utf-8/gbk/gb18030
+            .docx/.pdf → 暂 NotImplementedError（加提取器即纯加法）
+        → 法规（章/节/条头足够） / 非法规（最简树单根 article）
+        → kb_tree_repo.save(filename, tree, md5)
+          落盘 SQLite kb_trees 表                  [结构真相源 / 活合同]
 
      ④ 入库段（只认树，从不重新解析）
-        tree = kb_tree_repo.load(filename)
-        chunks, metadatas = iter_legal_chunks(tree)     [遍历树按条出块，带 metadata]
+        chunks, metadatas = iter_legal_chunks(tree) [遍历树按条出块，带 metadata]
         → kb_store.upsert_file_chunks → BGE embedding → ChromaDB  [派生索引]
      ⑤ 登记 ready + reset_retriever()（缓存失效）
+
+        ★ 新文件格式只动 _extract_text 一行 + 放开 ALLOWED_EXTS，入库段零改动 ★
 ```
 
 ### 检索侧（读取）—— 不变
@@ -49,7 +52,7 @@ document_service._process_document
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| 法规解析器 | `legal_parser.py` | `parse_to_tree`：任意文本→文档树（法规层级树 / 非法规最简树）。`iter_legal_chunks`：从树遍历出 chunks+metadata |
+| 文档解析器 | `legal_parser.py` | `parse_to_tree(content: bytes, filename, file_type) -> (tree, md5)`：按后缀分派 bytes→文本→文档树（法规层级树 / 非法规最简树）。`iter_legal_chunks`：从树遍历出 chunks+metadata。新格式在 `_extract_text` 加一行即接上 |
 | 文档树仓库 | `kb_tree_repo.py` | 文档树的 SQLite 权威落盘（save/load/delete）。解析与入库间的活合同 |
 | 编码/指纹工具 | `chunker.py` | `decode_text`/`read_text`/`file_md5`——底层的文本读取与内容指纹。切块逻辑已迁入 legal_parser |
 | Embedding | `embedding_client.py` | BGE-small-zh ONNX int8，进程内加载，CLS pooling + L2 归一化 |
@@ -150,4 +153,19 @@ SQLite kb_trees（结构真相源）        ← 文档树：章/节/条结构 + 
 
 - **非法规整段入单块**：超长普通文本不切分，单 chunk 可能很大、检索质量下降。本批知识库定位=法规，接受；未来若有长篇普通文，在 `parse_to_tree` 的非法规分支里加分段即可。
 - **存量 `.tree.json` 侧车**：旧部署或留有磁盘侧车文件，入库改从 SQLite 后成死文件，可手动删。
+- **`.docx`/`.pdf` 未实现**：`parse_to_tree` 已按后缀分派、`_extract_text` 占位抛 `NotImplementedError`，service 白名单 `ALLOWED_EXTS` 现只含 `.txt`。真要支持时：①在 `_extract_text` 加提取器分支（如 python-docx/pypdf，需装依赖）；②把后缀加进 `ALLOWED_EXTS`；③`build_knowledge_base._md5_of` 对齐多格式 md5 语义。入库段不动。
 - **`test_template_service.py` 失败**：模板更新提交后断言未同步，属预先存在的问题，与本改动无关。
+
+---
+
+### 第三批：接缝——parse_to_tree 吃 bytes，多格式纯加法
+
+第二批让 `parse_to_tree` 吃 `text: str`，service 硬绑 `.txt` + `decode_text`，加 docx/pdf 会被挡死。本批把接缝接好：
+
+- `parse_to_tree(content: bytes, filename, file_type) -> (tree, md5)`：按 `filename` 后缀在 `_extract_text` 里 bytes→文本，再走向树。md5 基于提取文本算（语义沿用，存量无迁移）。
+- service 删 `decode_text`/`.txt` 校验，改后缀白名单 `ALLOWED_EXTS`（现仅 `.txt`），解构 `(tree, md5)`。
+- `build_knowledge_base.py` 读 bytes 调 `parse_to_tree`，保留轻量 md5 预判跳过。
+- md5 由解析段返回 → service/build 都解构；入库段零改动。
+- 测试输入改 bytes，加"未支持后缀抛 `NotImplementedError`"用例。
+
+接缝接好后，新格式是纯加法：`_extract_text` 加一行 + `ALLOWED_EXTS` 放一个后缀，入库链路不动。

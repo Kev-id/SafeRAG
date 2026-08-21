@@ -16,7 +16,7 @@ from typing import Optional
 
 from backend.core.config import KB_SOURCE_DIR
 from backend.core.retriever import reset_retriever
-from backend.core.chunker import decode_text, file_md5, read_text
+from backend.core.chunker import read_text
 from backend.core.kb_store import delete_file_chunks, upsert_file_chunks
 from backend.core.legal_parser import iter_legal_chunks, parse_to_tree
 from backend.repositories import kb_file_repo, kb_tree_repo
@@ -26,12 +26,19 @@ logger = logging.getLogger(__name__)
 # 单文件上传大小上限（防误传大文件撑爆磁盘）
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
 
+# 允许的文件后缀（新格式在 legal_parser._extract_text 加提取器后，同步放开这里即可）
+ALLOWED_EXTS = {".txt"}
+
 
 async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
-    """保存上传的 txt，登记到 SQLite，解析成文档树，再从树切块写入索引。"""
+    """保存上传文件，登记到 SQLite，解析成文档树，再从树切块写入索引。
+
+    文件格式由 parse_to_tree 按 filename 后缀分派，本函数不关心格式。
+    """
     safe_name = os.path.basename(filename)  # 防路径穿越：只取文件名
-    if not safe_name.lower().endswith(".txt"):
-        raise ValueError(f"仅支持 .txt 格式，收到: {safe_name}")
+    ext = os.path.splitext(safe_name)[1].lower()
+    if ext not in ALLOWED_EXTS:
+        raise ValueError(f"暂不支持的格式 {ext or '（无后缀）'}，当前支持: {sorted(ALLOWED_EXTS)}")
     if len(content) > MAX_UPLOAD_BYTES:
         raise ValueError(f"文件超过 {MAX_UPLOAD_BYTES // (1024 * 1024)}MB 限制: {safe_name}")
 
@@ -41,26 +48,14 @@ async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
         f.write(content)
 
     now = datetime.now(timezone.utc).isoformat()
-    try:
-        text = decode_text(content)
-    except ValueError as e:
-        # 编码无法识别 → 删掉刚写的文件，登记 failed
-        os.remove(file_path)
-        kb_file_repo.upsert({
-            "filename": safe_name, "status": "failed",
-            "message": "无法识别文件编码", "updated_at": now,
-        })
-        raise ValueError(f"无法识别文件编码: {safe_name}") from e
-
-    md5 = file_md5(text)
     kb_file_repo.upsert({
-        "filename": safe_name, "md5": md5, "file_type": file_type, "size": len(content),
+        "filename": safe_name, "file_type": file_type, "size": len(content),
         "chunk_count": 0, "status": "building", "message": None, "updated_at": now,
     })
 
     try:
-        # 解析段：文本 → 文档树（合同），CPU 密集丢线程池，落盘到 kb_trees
-        tree = await asyncio.to_thread(parse_to_tree, text, safe_name, file_type)
+        # 解析段：bytes → 文档树（合同），CPU 密集丢线程池，落盘到 kb_trees
+        tree, md5 = await asyncio.to_thread(parse_to_tree, content, safe_name, file_type)
         await asyncio.to_thread(kb_tree_repo.save, safe_name, tree, md5)
         # 入库段：只认树，从树出块 → 写索引，绝不重新解析
         chunks, metadatas = iter_legal_chunks(tree)
@@ -70,7 +65,7 @@ async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
     except Exception:
         logger.exception("写入知识库索引失败: %s", safe_name)
         kb_file_repo.upsert({
-            "filename": safe_name, "md5": md5, "file_type": file_type, "size": len(content),
+            "filename": safe_name, "file_type": file_type, "size": len(content),
             "chunk_count": 0, "status": "failed", "message": "写入索引失败", "updated_at": now,
         })
         raise

@@ -27,6 +27,12 @@ from backend.repositories import kb_file_repo, kb_tree_repo
 logger = logging.getLogger(__name__)
 
 
+def _md5_of(path: str) -> str:
+    """读源文件算 md5（轻量跳过判据）。与 parse_to_tree 内部算的 md5 同源同值。"""
+    # TODO 多格式：.docx/.pdf 的 md5 语义要在 _extract_text 落地后对齐这里
+    return file_md5(read_text(path))
+
+
 def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
     """按登记册重建索引：读 kb_files → 对每个文件判 md5 → 变了才重切。
 
@@ -49,16 +55,18 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
             logger.warning("登记文件 %s 不在源目录，跳过（先用删除接口清理）", filename)
             continue
 
-        text = read_text(path)
-        md5 = file_md5(text)
-
-        # 没变就跳过（登记册的 md5 是真源，不用拉 ChromaDB）
+        # 没变就跳过（登记册的 md5 是真源，不用拉 ChromaDB）。
+        # 这里的 md5 仅用于判改：与 parse_to_tree 内算的同源同值（解码后文本的 md5），
+        # 解析后还会再算一次确认。轻量所以单独跑。
+        md5 = _md5_of(path)
         if not force and kf.get("md5") == md5:
             skipped += 1
             continue
 
-        # 重建脚本以源文件为准：现解析文本成树（与登记 md5 一并对齐），存合同树，再切
-        tree = parse_to_tree(text, source=filename, file_type=kf.get("file_type") or "")
+        # 重建脚本以源文件为准：bytes → 树 → 存合同 → 从树出块入库。
+        with open(path, "rb") as f:
+            content = f.read()
+        tree, md5 = parse_to_tree(content, filename=filename, file_type=kf.get("file_type") or "")
         kb_tree_repo.save(filename, tree, md5)
         chunks, metadatas = iter_legal_chunks(tree)
         chunk_count = upsert_file_chunks(filename, chunks, md5, metadatas)

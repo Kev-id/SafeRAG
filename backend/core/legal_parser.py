@@ -1,12 +1,18 @@
-"""法规/标准 TXT 解析器。
+"""文档解析器 — 文件内容 → 结构化文档树。
 
-把规整的 txt 法规文本解析成结构化文档树，再从树生成 chunks。
-这是知识库的上游真相源之一，避免切块阶段再去猜章/节/条。
+把任意文本/文档解析成统一 schema 的文档树，再从树生成 chunks。
+这是知识库"解析 → 入库"之间活合同的产出侧：解析段调 parse_to_tree 得到树，
+入库段 iter_legal_chunks 只认树。新文件格式（docx/pdf）只需在 _EXTRACTORS
+分派表里加一行 bytes→文本 提取器，入库链路零改动。
+
+树落 SQLite kb_trees 表（见 kb_tree_repo）。
 """
 
 from __future__ import annotations
 
 import re
+
+from backend.core.chunker import decode_text, file_md5
 
 
 _CHAPTER_RE = re.compile(r"^(第[一二三四五六七八九十百千万0-9]+章)\s*(.*)$")
@@ -55,22 +61,42 @@ def _split_long_text(text: str, max_chars: int) -> list[str]:
     return chunks
 
 
-def parse_to_tree(text: str, source: str, file_type: str) -> dict:
-    """把任意文本解析成文档树（解析与入库的唯一合同入口）。
+def _extract_text(content: bytes, filename: str) -> str:
+    """按文件名后缀把 bytes 变成文本（新格式在这里加一行）。
+
+    .txt：现有 decode_text 自动兼容 utf-8/gbk/gb18030。
+    .docx/.pdf：暂未实现——真要支持时在此导入 python-docx/pypdf 加分支即可。
+    """
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    if ext == "txt":
+        return decode_text(content)
+    if ext in ("docx", "pdf"):
+        raise NotImplementedError(f"暂未支持 .{ext}，请在 _extract_text 加提取器")
+    raise ValueError(f"不支持的文件后缀: .{ext}")
+
+
+def parse_to_tree(content: bytes, filename: str, file_type: str) -> tuple[dict, str]:
+    """把任意文件内容解析成文档树（解析与入库的唯一合同入口）。
+
+    按 filename 后缀取文本提取器（_extract_text），再走向法规层级树 / 非法规最简树。
+    返回 (tree, md5)：md5 基于提取出的文本算（语义沿用"解码后文本"），存量 kb_files 无需迁移。
 
     法规文本（章/节/条头足够）→ 层级文档树；
     其它文本 → 最简文档树（单根 article 节点装整段正文），与法规走同一条入库路径，
     入库层不再需要兜底——所有文本统一先变树，再 iter_legal_chunks 出块。
     """
+    text = _extract_text(content, filename)
     if not text.strip():
         raise ValueError("空文本")
+    md5 = file_md5(text)
     if _is_legal_text(text):
-        return _parse_legal(text, source=source, file_type=file_type)
-    return {
-        "doc": {"title": "", "file_type": file_type, "source": source, "meta": None},
+        return _parse_legal(text, source=filename, file_type=file_type), md5
+    tree = {
+        "doc": {"title": "", "file_type": file_type, "source": filename, "meta": None},
         "toc": [],
         "tree": [{"level": "article", "no": "", "title": "", "text": text.strip()}],
     }
+    return tree, md5
 
 
 def _parse_legal(text: str, source: str, file_type: str) -> dict:

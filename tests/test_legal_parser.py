@@ -4,6 +4,8 @@
 1. 法规 txt（标题/说明/目录/章/条）→ 层级文档树，全角空格目录探测正确。
 2. 非法规文本 → 包成最简文档树（单根 article），与法规走同一条入库路径。
 3. 文档树经 kb_tree_repo 落盘 SQLite 再读回，与切块忠实——活合同成立。
+
+parse_to_tree 吃 bytes（按后缀分派），故测试输入统一 encode。
 """
 
 import os
@@ -29,21 +31,22 @@ def _legal_text():
 第一章　总　　则
 第一条　为了防御和减轻地震灾害，保护人民生命和财产安全，促进经济社会的可持续发展，制定本法。
 第二条　在中华人民共和国领域和中华人民共和国管辖的其他海域从事地震监测预报、地震灾害预防、地震应急救援、地震灾后过渡性安置和恢复重建等防震减灾活动，适用本法。
-"""
+""".encode("utf-8")
 
 
 def test_parse_legal_txt_builds_tree():
-    tree = parse_to_tree(_legal_text(), source="防震减灾法.txt", file_type="法律")
+    tree, md5 = parse_to_tree(_legal_text(), filename="防震减灾法.txt", file_type="法律")
 
     assert tree["doc"]["title"] == "中华人民共和国防震减灾法"
     assert tree["doc"]["meta"].startswith("（1997年12月29日")
     assert len(tree["toc"]) >= 3
     assert tree["tree"][0]["no"] == "第一章"
     assert tree["tree"][0]["children"][0]["no"] == "第一条"
+    assert isinstance(md5, str) and len(md5) == 32
 
 
 def test_iter_legal_chunks_keeps_article_metadata():
-    tree = parse_to_tree(_legal_text(), source="防震减灾法.txt", file_type="法律")
+    tree, _ = parse_to_tree(_legal_text(), filename="防震减灾法.txt", file_type="法律")
     chunks, metas = iter_legal_chunks(tree)
 
     assert len(chunks) == 2
@@ -61,8 +64,8 @@ def test_full_width_space_in_toc_is_normalized():
 第一章　总　　则
 第一条　为了防御和减轻地震灾害，保护人民生命和财产安全，促进经济社会的可持续发展，制定本法。
 第二条　适用本法。
-"""
-    tree = parse_to_tree(text, source="法.txt", file_type="法律")
+""".encode("utf-8")
+    tree, _ = parse_to_tree(text, filename="法.txt", file_type="法律")
     assert tree["doc"]["meta"].startswith("（1997年")
     articles = [n["no"] for ch in tree["tree"] for n in ch.get("children", []) if n.get("level") == "article"]
     assert "第一条" in articles and "第二条" in articles
@@ -70,14 +73,14 @@ def test_full_width_space_in_toc_is_normalized():
 
 def test_plain_text_wrapped_into_minimal_tree():
     """非法规文本包成最简文档树（单根 article），入库只走这一条路径。"""
-    plain = "这是一段普通文本，没有任何章节条结构。\n另一段普通文本。\n"
-    tree = parse_to_tree(plain, source="notes.txt", file_type="说明")
+    plain = "这是一段普通文本，没有任何章节条结构。\n另一段普通文本。\n".encode("utf-8")
+    tree, _ = parse_to_tree(plain, filename="notes.txt", file_type="说明")
 
     assert tree["toc"] == []
     assert len(tree["tree"]) == 1
     art = tree["tree"][0]
     assert art["level"] == "article" and art["no"] == ""
-    assert plain.strip() in art["text"]
+    assert "普通文本" in art["text"]
     # 仍能照常出块（单块整段），且 metadata 带全
     chunks, metas = iter_legal_chunks(tree)
     assert len(chunks) == 1
@@ -85,11 +88,18 @@ def test_plain_text_wrapped_into_minimal_tree():
     assert metas[0]["file_type"] == "说明"
 
 
+def test_parse_to_tree_rejects_unsupported_ext():
+    """未实现的后缀抛 NotImplementedError（未来真要加 docx/pdf 时才会放开白名单）。"""
+    import pytest
+    with pytest.raises(NotImplementedError):
+        parse_to_tree(b"whatever", filename="x.docx", file_type="法律")
+
+
 def test_kb_tree_repo_roundtrip_is_faithful():
     """活合同：树落盘 SQLite 再读回，切块结果与原树逐字段一致。"""
     init_db()
-    tree = parse_to_tree(_legal_text(), source="防震减灾法.txt", file_type="法律")
-    kb_tree_repo.save("防震减灾法.txt", tree, md5="abc123")
+    tree, md5 = parse_to_tree(_legal_text(), filename="防震减灾法.txt", file_type="法律")
+    kb_tree_repo.save("防震减灾法.txt", tree, md5)
 
     reloaded = kb_tree_repo.load("防震减灾法.txt")
     assert reloaded is not None
