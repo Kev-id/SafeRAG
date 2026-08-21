@@ -21,8 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.core.chunker import read_text, file_md5
 from backend.core.config import KB_SOURCE_DIR
 from backend.core.kb_store import get_collection, upsert_file_chunks, delete_file_chunks
-from backend.core.legal_parser import build_chunks
-from backend.repositories import kb_file_repo
+from backend.core.legal_parser import iter_legal_chunks, parse_to_tree
+from backend.repositories import kb_file_repo, kb_tree_repo
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +57,10 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
             skipped += 1
             continue
 
-        tree_path = os.path.splitext(path)[0] + ".tree.json"
-        chunks, metadatas, _tree = build_chunks(
-            text, source=filename, file_type=kf.get("file_type") or "", tree_path=tree_path
-        )
+        # 重建脚本以源文件为准：现解析文本成树（与登记 md5 一并对齐），存合同树，再切
+        tree = parse_to_tree(text, source=filename, file_type=kf.get("file_type") or "")
+        kb_tree_repo.save(filename, tree, md5)
+        chunks, metadatas = iter_legal_chunks(tree)
         chunk_count = upsert_file_chunks(filename, chunks, md5, metadatas)
         kb_file_repo.upsert({
             "filename": filename, "md5": md5,

@@ -1,17 +1,16 @@
 """业务层 — 知识库文件管理。
 
-权威源（Master）：SQLite kb_files 登记表 + 源目录磁盘文件。
+权威源（Master）：SQLite kb_files 登记表 + kb_trees 文档树表 + 源目录磁盘文件。
 派生索引：ChromaDB（只服务检索）。
 
-每个操作都是"正向写两处"，不存在对账：
-    上传: 写磁盘 → 登记(building) → 切块写索引 → 更新(ready)
-    删除: 删索引块 → 删磁盘 → 删登记行
+解析与入库两段式（tree.json 是活合同）：
+    上传: 写磁盘 → 登记(building) → 解析成树存 kb_trees → 从树出块写索引 → 更新(ready)
+    删除: 删索引块 → 删磁盘 → 删登记行 → 删树行
 """
 
 import asyncio
 import logging
 import os
-from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -19,8 +18,8 @@ from backend.core.config import KB_SOURCE_DIR
 from backend.core.retriever import reset_retriever
 from backend.core.chunker import decode_text, file_md5, read_text
 from backend.core.kb_store import delete_file_chunks, upsert_file_chunks
-from backend.core.legal_parser import build_chunks
-from backend.repositories import kb_file_repo
+from backend.core.legal_parser import iter_legal_chunks, parse_to_tree
+from backend.repositories import kb_file_repo, kb_tree_repo
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +28,14 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
 
 
 async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
-    """保存上传的 txt，登记到 SQLite，并把切块写入 ChromaDB 索引。"""
+    """保存上传的 txt，登记到 SQLite，解析成文档树，再从树切块写入索引。"""
     safe_name = os.path.basename(filename)  # 防路径穿越：只取文件名
     if not safe_name.lower().endswith(".txt"):
         raise ValueError(f"仅支持 .txt 格式，收到: {safe_name}")
     if len(content) > MAX_UPLOAD_BYTES:
         raise ValueError(f"文件超过 {MAX_UPLOAD_BYTES // (1024 * 1024)}MB 限制: {safe_name}")
 
-    os.makedirs(KB_SOURCE_DIR, exist_ok=True)#exist_ok=True 表示如果目录已经存在，则不会抛出异常，而是继续执行后续代码。
+    os.makedirs(KB_SOURCE_DIR, exist_ok=True)
     file_path = os.path.join(KB_SOURCE_DIR, safe_name)
     with open(file_path, "wb") as f:
         f.write(content)
@@ -60,14 +59,11 @@ async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
     })
 
     try:
-        tree_path = Path(file_path).with_suffix(".tree.json")
-        chunks, metadatas, _tree = build_chunks(
-            text, source=safe_name, file_type=file_type, tree_path=str(tree_path)
-        )
-        # 非法规文本走的是纯 split_text，没生成树 → 清掉可能残留的旧侧车
-        if metadatas is None and tree_path.exists():
-            tree_path.unlink()
-        # 切块 + embedding 是 CPU 密集，丢线程池跑，别卡事件循环
+        # 解析段：文本 → 文档树（合同），CPU 密集丢线程池，落盘到 kb_trees
+        tree = await asyncio.to_thread(parse_to_tree, text, safe_name, file_type)
+        await asyncio.to_thread(kb_tree_repo.save, safe_name, tree, md5)
+        # 入库段：只认树，从树出块 → 写索引，绝不重新解析
+        chunks, metadatas = iter_legal_chunks(tree)
         chunk_count = await asyncio.to_thread(
             upsert_file_chunks, safe_name, chunks, md5, metadatas
         )
@@ -88,7 +84,7 @@ async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
 
 
 async def delete_kb_file(filename: str) -> dict:
-    """删除知识库文件：删索引块 → 删磁盘 → 删登记行。"""
+    """删除知识库文件：删索引块 → 删磁盘 → 删登记行 → 删树行。"""
     safe_name = os.path.basename(filename)
 
     if kb_file_repo.get(safe_name) is None:
@@ -101,6 +97,7 @@ async def delete_kb_file(filename: str) -> dict:
         os.remove(file_path)  # ② 删磁盘
 
     kb_file_repo.delete(safe_name)  # ③ 删登记行
+    kb_tree_repo.delete(safe_name)  # ④ 删树行
     reset_retriever()
     return {"message": f"已删除并重建知识库: {safe_name}"}
 

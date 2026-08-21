@@ -59,6 +59,14 @@ def init_db() -> None:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(kb_files)")}
         if "file_type" not in cols:
             conn.execute("ALTER TABLE kb_files ADD COLUMN file_type TEXT")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS kb_trees (
+                filename   TEXT PRIMARY KEY,
+                tree_json  TEXT NOT NULL,
+                md5        TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
         conn.commit()
         logger.info("数据库初始化完成: %s", _DB_PATH)
     finally:

@@ -6,9 +6,7 @@
 
 from __future__ import annotations
 
-import json
 import re
-from pathlib import Path
 
 
 _CHAPTER_RE = re.compile(r"^(第[一二三四五六七八九十百千万0-9]+章)\s*(.*)$")
@@ -30,8 +28,8 @@ def _normalize_text(text: str) -> list[str]:
     return [line for line in lines if line]
 
 
-def looks_like_legal_txt(text: str) -> bool:
-    """粗判是否是法规/标准类文本。"""
+def _is_legal_text(text: str) -> bool:
+    """是否够格当法规解析：章/节/条结构头达阈值。"""
     lines = _normalize_text(text)
     heads = sum(1 for line in lines if _LEGAL_HEAD_RE.match(_clean_line(line)))
     return heads >= 3
@@ -57,7 +55,25 @@ def _split_long_text(text: str, max_chars: int) -> list[str]:
     return chunks
 
 
-def parse_legal_txt(text: str, source: str, file_type: str) -> dict:
+def parse_to_tree(text: str, source: str, file_type: str) -> dict:
+    """把任意文本解析成文档树（解析与入库的唯一合同入口）。
+
+    法规文本（章/节/条头足够）→ 层级文档树；
+    其它文本 → 最简文档树（单根 article 节点装整段正文），与法规走同一条入库路径，
+    入库层不再需要兜底——所有文本统一先变树，再 iter_legal_chunks 出块。
+    """
+    if not text.strip():
+        raise ValueError("空文本")
+    if _is_legal_text(text):
+        return _parse_legal(text, source=source, file_type=file_type)
+    return {
+        "doc": {"title": "", "file_type": file_type, "source": source, "meta": None},
+        "toc": [],
+        "tree": [{"level": "article", "no": "", "title": "", "text": text.strip()}],
+    }
+
+
+def _parse_legal(text: str, source: str, file_type: str) -> dict:
     """把法规 txt 解析成文档树。"""
     lines = _normalize_text(text)
     if not lines:
@@ -204,8 +220,7 @@ def iter_legal_chunks(tree_data: dict, max_chars: int = 400) -> tuple[list[str],
     """从文档树生成索引 chunks 和对应 metadata。
 
     每个条文先按 max_chars 切，超长的会被拆成多个块，用 article_chunk 编号区分。
-    返回的 metadata 字段是固定 schema——法规块一定带 file_type/article_no 等，
-    保证和"非法规块（纯 split_text）"走同一套字段，便于 retriever 统一过滤。
+    返回的 metadata 字段是固定 schema——每块一定带 file_type/article_no 等。
     """
     doc = tree_data["doc"]
     chunks: list[str] = []
@@ -238,61 +253,26 @@ def iter_legal_chunks(tree_data: dict, max_chars: int = 400) -> tuple[list[str],
                 meta["section_title"] = section_title
             metas.append(meta)
 
-    for chapter in tree_data.get("tree", []):
-        chapter_no = chapter.get("no", "")
-        chapter_title = chapter.get("title", "")
-        for node in chapter.get("children", []):
-            if node.get("level") == "section":
-                for article in node.get("children", []):
+    for node in tree_data.get("tree", []):
+        # tree 顶层节点既可以是章节，也可以是裸条文（非法规最简树就是单个裸 article）。
+        if node.get("level") == "article":
+            push_article("", "", "", "", node.get("no", ""), node.get("text", ""))
+            continue
+        chapter_no = node.get("no", "")
+        chapter_title = node.get("title", "")
+        for child in node.get("children", []):
+            if child.get("level") == "section":
+                for article in child.get("children", []):
                     push_article(
                         chapter_no, chapter_title,
-                        node.get("no", ""), node.get("title", ""),
+                        child.get("no", ""), child.get("title", ""),
                         article.get("no", ""), article.get("text", ""),
                     )
             else:
                 push_article(
                     chapter_no, chapter_title,
                     "", "",
-                    node.get("no", ""), node.get("text", ""),
+                    child.get("no", ""), child.get("text", ""),
                 )
 
     return chunks, metas
-
-
-def dump_tree_json(tree_data: dict, path: str) -> None:
-    """把树保存为 JSON 侧车文件。"""
-    Path(path).write_text(
-        json.dumps(tree_data, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
-def build_chunks(
-    text: str,
-    source: str,
-    file_type: str,
-    tree_path: str | None = None,
-) -> tuple[list[str], list[dict] | None, dict | None]:
-    """从原始文本统一产出 (chunks, metadatas, tree_data)——service 和 build 脚本的唯一入口。
-
-    法规文本 → 解析成文档树 → 带 metadata 的结构化切块，并把树落盘成 .tree.json 侧车；
-    非法规文本 → 退化成 split_text 纯文本切块，metadatas=None（由 kb_store 补默认态）。
-
-    这样"判法规 / 解析 / 切块 / 落树"四个步骤只有一处实现，两处调用不会漂移。
-    tree_data=None 表示未走结构化路径（调用方据此决定是否管理侧车文件）。
-    """
-    if looks_like_legal_txt(text):
-        tree_data = parse_legal_txt(text, source=source, file_type=file_type)
-        if tree_path is not None:
-            dump_tree_json(tree_data, tree_path)
-        chunks, metadatas = iter_legal_chunks(tree_data)
-        return chunks, metadatas, tree_data
-
-    chunks = _fallback_split(text)
-    return chunks, None, None
-
-
-def _fallback_split(text: str) -> list[str]:
-    """非法规文本的兜底切块。延迟 import 避免与 chunker 循环依赖。"""
-    from backend.core.chunker import split_text
-    return split_text(text)
