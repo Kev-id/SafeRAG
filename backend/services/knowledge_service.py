@@ -11,13 +11,15 @@
 import asyncio
 import logging
 import os
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 
 from backend.core.config import KB_SOURCE_DIR
 from backend.core.retriever import reset_retriever
-from backend.core.chunker import decode_text, file_md5, read_text, split_text
+from backend.core.chunker import decode_text, file_md5, read_text
 from backend.core.kb_store import delete_file_chunks, upsert_file_chunks
+from backend.core.legal_parser import build_chunks
 from backend.repositories import kb_file_repo
 
 logger = logging.getLogger(__name__)
@@ -58,9 +60,17 @@ async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
     })
 
     try:
-        chunks = split_text(text)
+        tree_path = Path(file_path).with_suffix(".tree.json")
+        chunks, metadatas, _tree = build_chunks(
+            text, source=safe_name, file_type=file_type, tree_path=str(tree_path)
+        )
+        # 非法规文本走的是纯 split_text，没生成树 → 清掉可能残留的旧侧车
+        if metadatas is None and tree_path.exists():
+            tree_path.unlink()
         # 切块 + embedding 是 CPU 密集，丢线程池跑，别卡事件循环
-        chunk_count = await asyncio.to_thread(upsert_file_chunks, safe_name, chunks, md5)
+        chunk_count = await asyncio.to_thread(
+            upsert_file_chunks, safe_name, chunks, md5, metadatas
+        )
     except Exception:
         logger.exception("写入知识库索引失败: %s", safe_name)
         kb_file_repo.upsert({

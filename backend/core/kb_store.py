@@ -35,7 +35,12 @@ def get_collection():
     return _collection
 
 
-def upsert_file_chunks(filename: str, chunks: list[str], md5: str) -> int:
+def upsert_file_chunks(
+    filename: str,
+    chunks: list[str],
+    md5: str,
+    metadatas: list[dict] | None = None,
+) -> int:
     """把文件切好的块写入索引（先清掉该文件旧块再写），返回块数。"""
     collection = get_collection()
     try:
@@ -44,7 +49,18 @@ def upsert_file_chunks(filename: str, chunks: list[str], md5: str) -> int:
         logger.debug("删除 %s 旧块时无匹配，忽略", filename)
 
     ids = [f"{filename}#{i:03d}" for i in range(1, len(chunks) + 1)]
-    metadatas = [{"source": filename, "chunk": i, "md5": md5} for i in range(1, len(chunks) + 1)]
+    if metadatas is None:
+        metadatas = [{"source": filename, "chunk": i, "md5": md5} for i in range(1, len(chunks) + 1)]
+    else:
+        metadatas = [
+            {
+                **meta,
+                "source": filename,
+                "chunk": i,
+                "md5": md5,
+            }
+            for i, meta in enumerate(metadatas, start=1)
+        ]
     for start in range(0, len(chunks), _BATCH):
         end = min(start + _BATCH, len(chunks))
         collection.upsert(

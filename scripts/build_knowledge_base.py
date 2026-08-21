@@ -18,9 +18,10 @@ from datetime import datetime, timezone
 # 保证 `python scripts/build_knowledge_base.py` 直接跑也能 import backend 包
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.core.chunker import read_text, split_text, file_md5
+from backend.core.chunker import read_text, file_md5
 from backend.core.config import KB_SOURCE_DIR
 from backend.core.kb_store import get_collection, upsert_file_chunks, delete_file_chunks
+from backend.core.legal_parser import build_chunks
 from backend.repositories import kb_file_repo
 
 logger = logging.getLogger(__name__)
@@ -56,8 +57,11 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
             skipped += 1
             continue
 
-        chunks = split_text(text)
-        chunk_count = upsert_file_chunks(filename, chunks, md5)
+        tree_path = os.path.splitext(path)[0] + ".tree.json"
+        chunks, metadatas, _tree = build_chunks(
+            text, source=filename, file_type=kf.get("file_type") or "", tree_path=tree_path
+        )
+        chunk_count = upsert_file_chunks(filename, chunks, md5, metadatas)
         kb_file_repo.upsert({
             "filename": filename, "md5": md5,
             "size": os.path.getsize(path), "chunk_count": chunk_count,
