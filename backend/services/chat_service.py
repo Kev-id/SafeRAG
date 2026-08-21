@@ -44,8 +44,16 @@ def build_chat_messages(
     if enable_rag and question.strip():
         context, sources = retrieve_with_citations(question)
         if context:
-            messages = [
-                {"role": "system", "content":  context + _RAG_SYSTEM_PREFIX},
-                *messages,
-            ]
+            rag_content = context + _RAG_SYSTEM_PREFIX
+            # Qwen 聊天模板要求 system 只能有一条且在开头（否则模板报
+            # "System message must be at the beginning"）：
+            # 若 messages 已以 system 开头 → 把 RAG 内容并进去（保持 index 0）；
+            # 否则 → 在最前面插一条独立 system。
+            if messages and messages[0].get("role") == "system":
+                messages = [
+                    {"role": "system", "content": rag_content + "\n\n" + messages[0]["content"]},
+                    *messages[1:],
+                ]
+            else:
+                messages = [{"role": "system", "content": rag_content}, *messages]
     return messages, sources
