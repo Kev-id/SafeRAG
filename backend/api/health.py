@@ -9,7 +9,8 @@ router = APIRouter(prefix="/api/v1")
 class HealthResponse(BaseModel):
     status: str
     sqlite: bool
-    qwen: bool
+    qwen: bool          # 文档处理引擎
+    qwen_chat: bool     # 流式对话引擎
     chroma: bool
 
 

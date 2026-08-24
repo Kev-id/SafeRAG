@@ -62,14 +62,14 @@ def _get_chat_client() -> httpx.AsyncClient:
     return _chat_client
 
 
-async def check_health() -> dict:
-    """检查 Qwen 推理引擎：返回 {"reachable": bool, "busy": bool | None}。
+async def _health_of(client: httpx.AsyncClient) -> dict:
+    """探测单个引擎：返回 {"reachable": bool, "busy": bool | None}。
 
     reachable = 引擎能否响应 /health；
     busy = 引擎当前是否正在推理（unreachable 时为 None）。
     """
     try:
-        resp = await _get_doc_client().get("/health")
+        resp = await client.get("/health")
     except httpx.RequestError:
         return {"reachable": False, "busy": None}
     if resp.status_code != 200:
@@ -79,6 +79,16 @@ async def check_health() -> dict:
     except Exception:
         busy = False
     return {"reachable": True, "busy": busy}
+
+
+async def check_health() -> dict:
+    """检查文档处理引擎（QWEN_DOC_URL）—— 兼容旧接口，前端未迁移也能用。"""
+    return await _health_of(_get_doc_client())
+
+
+async def check_chat_health() -> dict:
+    """检查流式对话引擎（QWEN_CHAT_URL）。"""
+    return await _health_of(_get_chat_client())
 
 
 async def chat(messages: list[dict]) -> str:

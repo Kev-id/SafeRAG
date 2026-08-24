@@ -9,9 +9,12 @@ router = APIRouter(prefix="/api/v1")
 
 
 class AIStatusResponse(BaseModel):
-    qwen_reachable: bool
+    qwen_reachable: bool           # 文档引擎
     qwen_busy: bool | None = None
     qwen_url: str
+    qwen_chat_reachable: bool       # 聊天引擎
+    qwen_chat_busy: bool | None = None
+    qwen_chat_url: str
     message: str
 
 
