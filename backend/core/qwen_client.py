@@ -1,5 +1,6 @@
 """HTTP 客户端，封装对 Qwen 推理引擎的调用。"""
 
+import os
 import time
 from typing import AsyncIterator
 
@@ -22,20 +23,43 @@ class QwenError(Exception):
     pass
 
 
+# 按用途隔离的两个引擎（文档处理 / 流式对话）：
+# 环境变量覆盖，默认回退 QWEN_BASE_URL / QWEN_MODEL（兼容只配单引擎的旧部署）。
+# 用 os.getenv 而不是 from config import QWEN_DOC_URL —— config.py 可能因本机
+# 跳过跟踪而缺这些新字段，直接 import 会在盒子上 AttributeError。
+QWEN_DOC_URL = os.getenv("QWEN_DOC_URL", QWEN_BASE_URL)
+QWEN_CHAT_URL = os.getenv("QWEN_CHAT_URL", QWEN_BASE_URL)
+QWEN_DOC_MODEL = os.getenv("QWEN_DOC_MODEL", QWEN_MODEL)
+QWEN_CHAT_MODEL = os.getenv("QWEN_CHAT_MODEL", QWEN_MODEL)
+
+
+def _make_client(base_url: str) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        base_url=base_url,
+        timeout=httpx.Timeout(QWEN_CONNECT_TIMEOUT, read=QWEN_READ_TIMEOUT),
+    )
+
+
 # 懒加载单例：复用连接池，避免每次调用都重建 TCP/HTTP 连接。
 # 注意：单例长期复用，用完不能 close（进程退出时自然回收）。
-_client: httpx.AsyncClient | None = None
+_doc_client: httpx.AsyncClient | None = None
+_chat_client: httpx.AsyncClient | None = None
 
 
-def _get_client() -> httpx.AsyncClient:
-    """获取全局复用的 AsyncClient（第一次调用时创建）。"""
-    global _client
-    if _client is None:
-        _client = httpx.AsyncClient(
-            base_url=QWEN_BASE_URL,
-            timeout=httpx.Timeout(QWEN_CONNECT_TIMEOUT, read=QWEN_READ_TIMEOUT),
-        )
-    return _client
+def _get_doc_client() -> httpx.AsyncClient:
+    """文档处理引擎的连接（非流式 + 健康检查）。"""
+    global _doc_client
+    if _doc_client is None:
+        _doc_client = _make_client(QWEN_DOC_URL)
+    return _doc_client
+
+
+def _get_chat_client() -> httpx.AsyncClient:
+    """流式对话引擎的连接。"""
+    global _chat_client
+    if _chat_client is None:
+        _chat_client = _make_client(QWEN_CHAT_URL)
+    return _chat_client
 
 
 async def check_health() -> dict:
@@ -45,7 +69,7 @@ async def check_health() -> dict:
     busy = 引擎当前是否正在推理（unreachable 时为 None）。
     """
     try:
-        resp = await _get_client().get("/health")
+        resp = await _get_doc_client().get("/health")
     except httpx.RequestError:
         return {"reachable": False, "busy": None}
     if resp.status_code != 200:
@@ -65,7 +89,7 @@ async def chat(messages: list[dict]) -> str:
         QwenError: 连不上、超时或推理出错。
     """
     payload = {
-        "model": QWEN_MODEL,
+        "model": QWEN_DOC_MODEL,
         "messages": messages,
         "stream": False,
         "max_tokens": QWEN_MAX_TOKENS,  # 封顶单次生成长度，控制最坏耗时
@@ -78,7 +102,7 @@ async def chat(messages: list[dict]) -> str:
 
     start = time.monotonic()
     try:
-        resp = await _get_client().post(
+        resp = await _get_doc_client().post(
             "/v1/chat/completions",
             json=payload,
         )
@@ -111,7 +135,7 @@ async def chat_stream(messages: list[dict]) -> AsyncIterator[str]:
     流开始后中断 → 由调用方决定怎么收尾）。
     """
     payload = {
-        "model": QWEN_MODEL,
+        "model": QWEN_CHAT_MODEL,
         "messages": messages,
         "stream": True,
         "max_tokens": QWEN_MAX_TOKENS,
@@ -124,7 +148,7 @@ async def chat_stream(messages: list[dict]) -> AsyncIterator[str]:
 
     start = time.monotonic()
     try:
-        async with _get_client().stream(
+        async with _get_chat_client().stream(
             "POST", "/v1/chat/completions", json=payload
         ) as resp:
             if resp.status_code != 200:
