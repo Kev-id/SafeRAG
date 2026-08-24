@@ -18,8 +18,8 @@ from backend.services.document_service import retrieve_with_citations
 logger = logging.getLogger(__name__)
 
 # 注入 system 的提示词头：告诉模型参考法规并用 [编号] 标注
-_RAG_SYSTEM_PREFIX = "回答问题时，可以参考以下法规：\n"
-_RAG_SYSTEM_SUFFIX = "\n当需要直接引用法条原文或部分内容时，必须一字不差地摘录，禁止任何改写或推测。"
+_RAG_SYSTEM_PREFIX = "回答问题时，可以参考以上法规：\n当需要直接引用法条原文或部分内容时，必须一字不差地摘录，禁止任何改写或推测。\n"
+
 
 def build_chat_messages(
     messages: list[dict], enable_rag: bool
