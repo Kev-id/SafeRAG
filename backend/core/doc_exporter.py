@@ -11,23 +11,33 @@ PANDOC_PATH 从环境变量读（默认 "pandoc" 走 PATH），不依赖 config.
 import asyncio
 import logging
 import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 # pandoc 可执行路径：环境变量覆盖，默认走 PATH
 PANDOC_PATH = os.getenv("PANDOC_PATH", "pandoc")
 
+# 中文公文字体用的 reference.docx（正文楷体3号、标题黑体3号）。
+# 环境变量可覆盖；默认取项目 assets/reference.docx（项目根 = 本文件上两级）。
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+REFERENCE_DOC = os.getenv(
+    "PANDOC_REFERENCE", str(_PROJECT_ROOT / "assets" / "reference.docx")
+)
+
 # 转换超时（秒）：pandoc 一般秒级，防大文件卡死请求
 _CONVERT_TIMEOUT = 60
 
 
 async def md_to_docx(md_path: str, docx_path: str) -> None:
-    """调 pandoc 把 .md 转 .docx。
+    """调 pandoc 把 .md 转 .docx，套用中文公文字体 reference.docx。
 
     Raises:
         RuntimeError: pandoc 不存在 / 转换失败 / 超时。
     """
     cmd = [PANDOC_PATH, md_path, "-o", docx_path]
+    if REFERENCE_DOC and os.path.isfile(REFERENCE_DOC):
+        cmd += ["--reference-doc", REFERENCE_DOC]
     logger.info("导出 Word: %s", " ".join(cmd))
     try:
         proc = await asyncio.create_subprocess_exec(

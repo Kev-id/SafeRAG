@@ -100,7 +100,9 @@ async def _process_document(doc: Document) -> None:
     # 报告正文 + 末尾追加「参考法规来源」清单，实现引用可追溯
     report = raw.strip()
     if sources:
-        report += "\n\n---\n\n## 参考法规来源\n" + "\n".join(sources)
+        # 每条来源用空行隔开：单 \n 在 Markdown 里是"软换行"（同一段），
+        # pandoc 转 Word 会粘连成一段；\n\n 才各自成独立段落
+        report += "\n\n---\n\n## 参考法规来源\n\n" + "\n\n".join(sources)
 
     doc.report_content = report
     doc.status = DocStatus.COMPLETED
