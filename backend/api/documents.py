@@ -3,10 +3,15 @@ GET    /api/v1/documents
 GET    /api/v1/documents/{id}
 GET    /api/v1/documents/{id}/download
 """
+import os
+import tempfile
+
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
+from backend.core import doc_exporter
 from backend.services import document_service
 from backend.repositories.document_repo import report_path, DocStatus
 
@@ -177,18 +182,47 @@ async def retry(doc_id: str):
 
 
 @router.get("/documents/{doc_id}/download")
-async def download(doc_id: str):
+async def download(doc_id: str, format: str = Query("md")):
+    """下载报告：format=md 返回原 .md；format=docx 用 pandoc 转 Word。
+
+    Word 是按需派生的：临时文件转完即返回，响应后由 BackgroundTask 清理，不落库。
+    """
     try:
         doc = await document_service.get_detail(doc_id)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
     path = report_path(doc)
-    return FileResponse(
-        path=path,
-        filename=doc.report_filename,
-        media_type="text/markdown; charset=utf-8",
-    )
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="报告文件不存在")
+
+    if format == "md":
+        return FileResponse(
+            path=path,
+            filename=doc.report_filename,
+            media_type="text/markdown; charset=utf-8",
+        )
+
+    if format == "docx":
+        fd, tmp = tempfile.mkstemp(suffix=".docx")
+        os.close(fd)
+        try:
+            await doc_exporter.md_to_docx(path, tmp)
+        except RuntimeError as e:
+            os.unlink(tmp)
+            raise HTTPException(status_code=503, detail=f"转换失败: {e}")
+        filename = os.path.splitext(doc.report_filename)[0] + ".docx"
+        return FileResponse(
+            path=tmp,
+            filename=filename,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument."
+                "wordprocessingml.document"
+            ),
+            background=BackgroundTask(os.unlink, tmp),
+        )
+
+    raise HTTPException(status_code=400, detail=f"仅支持 md/docx，收到: {format}")
 
 
 @router.delete("/documents/{doc_id}", status_code=204)
