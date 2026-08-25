@@ -23,6 +23,35 @@ class QwenError(Exception):
     pass
 
 
+def _summarize_content(content) -> str:
+    """日志用：把消息内容压成一行摘要，绝不打印大段文本 / base64。
+
+    普通文本 → text(N字): 前80字…
+    多模态数组 → text(N字) + image_url…
+    """
+    if isinstance(content, str):
+        text = content.strip()
+        if len(text) > 80:
+            return f"text({len(text)}字): {text[:80]}…"
+        return f"text({len(text)}字): {text}" if text else "text(0字)"
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if not isinstance(item, dict):
+                parts.append(type(item).__name__)
+                continue
+            t = item.get("type")
+            if t == "text":
+                txt = (item.get("text") or "").strip()
+                parts.append(f"text({len(txt)}字)")
+            elif t == "image_url":
+                parts.append("image_url")
+            else:
+                parts.append(str(t))
+        return " + ".join(parts) if parts else "empty"
+    return type(content).__name__
+
+
 # 按用途隔离的两个引擎（文档处理 / 流式对话）：
 # 环境变量覆盖，默认回退 QWEN_BASE_URL / QWEN_MODEL（兼容只配单引擎的旧部署）。
 # 用 os.getenv 而不是 from config import QWEN_DOC_URL —— config.py 可能因本机
@@ -106,9 +135,9 @@ async def chat(messages: list[dict]) -> str:
     }
 
     logger.info("调用 Qwen，消息数=%d", len(messages))
-    # 调试：打印实际发送给模型的完整 prompt，方便核对 RAG 检索到的法规有没有进去
+    # 只打每条消息一行摘要（长度/类型），不打印完整内容（可能含 base64）
     for i, m in enumerate(messages):
-        logger.info("[发给模型] message[%d] role=%s:\n%s", i, m["role"], m["content"])
+        logger.info("[发给模型] message[%d] role=%s: %s", i, m["role"], _summarize_content(m.get("content")))
 
     start = time.monotonic()
     try:
@@ -152,9 +181,9 @@ async def chat_stream(messages: list[dict]) -> AsyncIterator[str]:
     }
 
     logger.info("调用 Qwen（流式），消息数=%d", len(messages))
-    # 调试：打印实际发送给模型的完整 prompt，方便核对 RAG 检索到的法规有没有进去
+    # 只打每条消息一行摘要（长度/类型），不打印完整内容（可能含 base64）
     for i, m in enumerate(messages):
-        logger.info("[发给模型] message[%d] role=%s:\n%s", i, m["role"], m["content"])
+        logger.info("[发给模型] message[%d] role=%s: %s", i, m["role"], _summarize_content(m.get("content")))
 
     start = time.monotonic()
     try:
