@@ -176,7 +176,7 @@ class Qwen3_5:
     # Main entry
     # ------------------------------------------------------------------
 
-    def run_image(self, messages, max_tokens=None, clear_history=True):
+    def run_image(self, messages, max_tokens=None, clear_history=True, verbose=False):
         """Stateless single-turn image+text inference (mirrors server.run_chat).
 
         `messages` is OpenAI-format; content may be a str or a list of
@@ -254,6 +254,9 @@ class Qwen3_5:
                         [token, token], skip_special_tokens=True
                     )[len(pre_word):]
                 text += word
+                if verbose:
+                    sys.stdout.write(word)
+                    sys.stdout.flush()
                 full_word_tokens = []
             self.max_posid += 1
             position_ids = np.array(
@@ -263,6 +266,9 @@ class Qwen3_5:
             tok_num += 1
 
         self.history_max_posid = self.max_posid + 2
+        if verbose:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
         return self._strip_thinking(text)
 
     def chat(self, max_tokens=None):
@@ -292,8 +298,8 @@ class Qwen3_5:
             if not content:
                 continue
             messages = [{"role": "user", "content": content}]
-            answer = self.run_image(messages, max_tokens=max_tokens, clear_history=False)
-            print(f"\nAnswer:\n{answer}")
+            self.run_image(messages, max_tokens=max_tokens, clear_history=False, verbose=True)
+            print()
 
     @staticmethod
     def _strip_thinking(text):
@@ -347,9 +353,9 @@ def main(args):
     messages = [{"role": "user", "content": content}]
 
     start = time.time()
-    answer = model.run_image(messages, max_tokens=args.max_tokens)
+    model.run_image(messages, max_tokens=args.max_tokens, verbose=True)
     elapsed = time.time() - start
-    print(f"\nAnswer:\n{answer}")
+    print(f"\n[elapsed {elapsed:.2f}s]")
     print(f"\n[elapsed {elapsed:.2f}s]")
     if model.support_history:
         print(f"Total Tokens: {model.model.history_length}")
