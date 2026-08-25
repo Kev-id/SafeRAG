@@ -228,7 +228,7 @@ class Qwen3_5:
             self._vit_process(input_ids, pixel_values, image_grid_thw)
             rope = get_rope_index(input_ids, image_grid_thw, self.ID_IMAGE_PAD,
                                   self.ID_VISION_START, self.spatial_merge_size)
-            position_ids = rope[0]  # (3, L)
+            position_ids = rope[:, 0, :]  # (3, L); NOT rope[0], which is one plane only
             self.max_posid = int(position_ids.max())
             token = self.forward_prefill(position_ids.astype(np.int32).reshape(-1))
         else:
