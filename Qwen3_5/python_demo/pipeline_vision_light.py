@@ -6,7 +6,7 @@
 # math live in vision_math.py (pure numpy/PIL); nothing here imports torch,
 # qwen_vl_utils or AutoProcessor.
 #
-# CLI (same usage as pipeline.py):
+# CLI (same usage as pipeline.py; omit -p to enter interactive multi-turn chat):
 #   python pipeline_vision_light.py -m ../path/model.bmodel -c ../config \
 #       -p "这张图里有什么 @/path/image.png"
 #
@@ -210,6 +210,14 @@ class Qwen3_5:
             raise ValueError(
                 f"Input length {token_len} exceeds maximum {max_input}"
             )
+        # multi-turn guard (same as pipeline.run_once): drop history before it
+        # would overflow the KV cache.
+        if not clear_history and self.support_history:
+            if (token_len + self.model.history_length > self.model.SEQLEN - 128) or \
+               (self.model.history_length > self.model.PREFILL_KV_LENGTH):
+                print("Warning: History is full, clearing it to continue.")
+                self.model.clear_history()
+                self.history_max_posid = 0
 
         # ---- prefill ----
         self.model.forward_embed(input_ids.astype(np.int32))
@@ -254,6 +262,36 @@ class Qwen3_5:
         self.history_max_posid = self.max_posid + 2
         return self._strip_thinking(text)
 
+    def chat(self, max_tokens=None):
+        """Interactive multi-turn chat (mirrors pipeline.chat).  Attach an image
+        with @<path>, read a prompt file with @<path-to>.txt/.md; /clear, /exit."""
+        print("""\n=================================================================
+1. If you want to quit, please enter one of [/q, /quit, /exit]
+2. To create a new chat session, please enter one of [/clear, /new]
+3. To ask about an image, include @<path> in your question
+4. To use the contents of a .txt or .md file as your question, include @<path>
+=================================================================""")
+        while True:
+            input_str = input("\nQuestion: ")
+            if input_str in ["/exit", "/q", "/quit"]:
+                break
+            if input_str in ["/clear", "/new", "/c"]:
+                print("New chat session created.")
+                self.model.clear_history()
+                self.history_max_posid = 0
+                continue
+            prompt, media = _extract_media(input_str)
+            content = []
+            if media:
+                content.append({"type": "image", "image": media})
+            if prompt:
+                content.append({"type": "text", "text": prompt})
+            if not content:
+                continue
+            messages = [{"role": "user", "content": content}]
+            answer = self.run_image(messages, max_tokens=max_tokens, clear_history=False)
+            print(f"\nAnswer:\n{answer}")
+
     @staticmethod
     def _strip_thinking(text):
         """Remove <think>...</think> blocks from model output."""
@@ -291,8 +329,11 @@ def _extract_media(input_str):
 
 def main(args):
     model = Qwen3_5(args)
-    prompt, media = _extract_media(args.prompt)
+    if args.prompt is None:
+        model.chat(max_tokens=args.max_tokens)
+        return
 
+    prompt, media = _extract_media(args.prompt)
     content = []
     if media:
         content.append({"type": "image", "image": media})
