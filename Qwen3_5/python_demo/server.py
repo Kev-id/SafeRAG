@@ -5,12 +5,14 @@
 #
 # ==============================================================================
 #
-# FastAPI server wrapping pipeline_text.py as an OpenAI-compatible chat API.
+# FastAPI server wrapping the no-torch vision pipeline as an OpenAI-compatible
+# chat API.  Supports both text-only and image (base64 data URI) input; the
+# image path runs on the TPU ViT via pipeline_vision_light (no torch).
 #
 # Usage:
 #   python server.py -m ../path/to/model.bmodel -c ../config --port 8000
 #
-# Dependencies: fastapi, uvicorn, pydantic  (pip install fastapi uvicorn)
+# Dependencies: fastapi, uvicorn, pydantic, plus the vision_math stack.
 # ==============================================================================
 
 import asyncio
@@ -20,7 +22,7 @@ import sys
 import os
 import re
 from threading import Lock
-from typing import List, Optional, AsyncGenerator
+from typing import List, Optional, Union
 import json
 
 import numpy as np
@@ -30,16 +32,26 @@ from pydantic import BaseModel, Field
 import uvicorn
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from pipeline_text import Qwen3_5
+from pipeline_vision_light import Qwen3_5
 
 
 # ---------------------------------------------------------------------------
-# Pydantic schemas (OpenAI-compatible)
+# Pydantic schemas (OpenAI-compatible; content may be text or a content array)
 # ---------------------------------------------------------------------------
+
+class ImageUrl(BaseModel):
+    url: str  # local path or data URI ("data:image/png;base64,...")
+
+
+class ContentItem(BaseModel):
+    type: str = "text"          # "text" | "image_url"
+    text: Optional[str] = None
+    image_url: Optional[ImageUrl] = None
+
 
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    content: Union[str, List[ContentItem]] = ""
 
 
 class ChatCompletionRequest(BaseModel):
@@ -113,21 +125,46 @@ def _strip_thinking(text: str) -> str:
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL).strip()
 
 
+def _has_image(messages: List[dict]) -> bool:
+    """True if any message content is a list carrying an image_url item."""
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "image_url" and isinstance(item.get("image_url"), dict):
+                    return True
+                if item.get("type") == "image" and isinstance(item.get("image"), str):
+                    return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # OpenAI-compatible inference
 # ---------------------------------------------------------------------------
 
 def run_chat(messages: List[ChatMessage], max_tokens: Optional[int] = None) -> str:
     """
-    Stateless multi-turn inference.
+    Stateless multi-turn inference (text or image).
 
-    Tokenizes the full conversation via apply_chat_template, runs the model,
-    and returns the assistant's reply.  Thread-safe via a global lock.
+    Text-only requests reuse the plain-text path (identical to the original
+    pipeline_text server).  Requests whose last user message carries an image
+    run through run_image, which tokenizes the full conversation, runs the TPU
+    ViT on the image, and returns the assistant's reply.  Thread-safe via the
+    global lock.
     """
     m = get_model()
+    msgs = [msg.model_dump() for msg in messages]
 
-    # The chat template (config/chat_template.jinja line 4-5) accepts plain
-    # string content, so we can pass OpenAI-format messages directly.
+    if _has_image(msgs):
+        try:
+            with _model_lock:
+                return m.run_image(msgs, max_tokens=max_tokens)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # ---- text-only path (unchanged) ----
     qwen_msgs = [{"role": msg.role, "content": msg.content} for msg in messages]
 
     with _model_lock:
@@ -190,11 +227,55 @@ def run_chat(messages: List[ChatMessage], max_tokens: Optional[int] = None) -> s
     return _strip_thinking(text)
 
 
+def _stream_vision(msgs: List[dict], model_name: str, chat_id: str,
+                   max_tokens: Optional[int], created: int):
+    """SSE generator for image requests — streams stream_image() words."""
+    m = get_model()
+
+    first_chunk = ChatCompletionChunk(
+        id=chat_id, created=created, model=model_name,
+        choices=[StreamChoice(delta=DeltaMessage(role="assistant"))],
+    )
+    yield f"data: {first_chunk.model_dump_json()}\n\n"
+
+    try:
+        # Lock held for the whole stream (busy stays true while generating),
+        # matching the text-only streaming path below.
+        with _model_lock:
+            for word in m.stream_image(msgs, max_tokens=max_tokens):
+                chunk = ChatCompletionChunk(
+                    id=chat_id, created=created, model=model_name,
+                    choices=[StreamChoice(delta=DeltaMessage(content=word))],
+                )
+                yield f"data: {chunk.model_dump_json()}\n\n"
+    except ValueError as e:
+        err_chunk = ChatCompletionChunk(
+            id=chat_id, created=created, model=model_name,
+            choices=[StreamChoice(finish_reason="error")],
+        )
+        yield f"data: {err_chunk.model_dump_json()}\n\n"
+        yield "data: [DONE]\n\n"
+        return
+
+    final_chunk = ChatCompletionChunk(
+        id=chat_id, created=created, model=model_name,
+        choices=[StreamChoice(delta=DeltaMessage(), finish_reason="stop")],
+    )
+    yield f"data: {final_chunk.model_dump_json()}\n\n"
+    yield "data: [DONE]\n\n"
+
+
 def run_chat_stream(messages: List[ChatMessage], model_name: str, chat_id: str, max_tokens: Optional[int] = None):
     """SSE generator — yields "data: {...}\n\n" lines for streaming."""
     m = get_model()
     created = int(time.time())
 
+    msgs = [msg.model_dump() for msg in messages]
+    if _has_image(msgs):
+        yield from _stream_vision(msgs, model_name, chat_id, max_tokens, created)
+        return
+
+    # ---- text-only streaming (unchanged) ----
     qwen_msgs = [{"role": msg.role, "content": msg.content} for msg in messages]
 
     with _model_lock:
@@ -282,7 +363,7 @@ def run_chat_stream(messages: List[ChatMessage], model_name: str, chat_id: str, 
 # FastAPI application
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="Qwen3.5 Text API", version="1.0.0")
+app = FastAPI(title="Qwen3.5 Vision API", version="1.1.0")
 
 
 @app.get("/health")
@@ -314,7 +395,8 @@ async def list_models():
 
 @app.post("/v1/chat/completions")
 async def chat_completions(req: ChatCompletionRequest):
-    """OpenAI-compatible chat completions endpoint (streaming + non-streaming)."""
+    """OpenAI-compatible chat completions endpoint (streaming + non-streaming,
+    text + image)."""
     if not req.messages:
         raise HTTPException(status_code=400, detail="messages must not be empty")
 
@@ -327,7 +409,7 @@ async def chat_completions(req: ChatCompletionRequest):
             headers={"Cache-Control": "no-cache"},
         )
 
-    # run_chat 是 CPU 密集的同步函数：丢线程池执行，避免推理期间阻塞事件循环
+    # run_chat 是 CPU/TPU 密集的同步函数：丢线程池执行，避免推理期间阻塞事件循环
     #（否则 /health 等其他请求会跟着卡住，ai_status 一查就超时）
     text = await asyncio.to_thread(run_chat, req.messages, req.max_tokens)
     return ChatCompletionResponse(
@@ -349,7 +431,7 @@ async def chat_completions(req: ChatCompletionRequest):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Qwen3.5 Text API Server")
+    parser = argparse.ArgumentParser(description="Qwen3.5 Text+Vision API Server")
     parser.add_argument("-m", "--model_path", type=str, required=True,
                         help="Path to the bmodel file")
     parser.add_argument("-c", "--config_path", type=str, default="../config",
@@ -360,6 +442,8 @@ if __name__ == "__main__":
                         help="Bind address")
     parser.add_argument("--port", type=int, default=8000,
                         help="Listen port")
+    parser.add_argument("--vision_t", type=int, default=2,
+                        help="ViT patch feature temporal dim: 2 (1536-d, default) or 1 (768-d)")
     args = parser.parse_args()
 
     # Build a namespace compatible with Qwen3_5.__init__
@@ -369,10 +453,10 @@ if __name__ == "__main__":
     model_args.devid = args.devid
     model_args.model_path = args.model_path
     model_args.config_path = args.config_path
+    model_args.vision_t = args.vision_t
 
     print(f"Loading model from {args.model_path} ...")
     _model = Qwen3_5(model_args)
     print("Model loaded.")
 
     uvicorn.run(app, host=args.host, port=args.port)
-

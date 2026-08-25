@@ -21,6 +21,20 @@ logger = logging.getLogger(__name__)
 _RAG_SYSTEM_PREFIX = "回答问题时，可以参考以上法规：\n当需要直接引用法条原文或部分内容时，必须一字不差地摘录，禁止任何改写或推测。\n"
 
 
+def _content_to_text(content) -> str:
+    """取消息文本部分：content 可能是 str，也可能是 OpenAI 多模态数组
+    [{type:text},{type:image_url}]。图片项不参与关键词检索，只取 text。"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            (item.get("text") or "").strip()
+            for item in content
+            if isinstance(item, dict) and isinstance(item.get("text"), str)
+        ).strip()
+    return ""
+
+
 def build_chat_messages(
     messages: list[dict], enable_rag: bool
 ) -> tuple[list[dict], list[str]]:
@@ -38,7 +52,7 @@ def build_chat_messages(
     if not messages:
         raise ValueError("messages 不能为空")
 
-    question = messages[-1].get("content", "") or ""
+    question = _content_to_text(messages[-1].get("content", ""))
     sources: list[str] = []
 
     if enable_rag and question.strip():

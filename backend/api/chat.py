@@ -7,6 +7,7 @@ POST /api/v1/chat/completions
 """
 
 import asyncio
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -18,9 +19,19 @@ from backend.services import chat_service
 router = APIRouter(prefix="/api/v1")
 
 
+class ImageUrl(BaseModel):
+    url: str  # 本地路径或 data URI（"data:image/png;base64,..."）
+
+
+class ContentItem(BaseModel):
+    type: str = "text"          # "text" | "image_url"
+    text: Optional[str] = None
+    image_url: Optional[ImageUrl] = None
+
+
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    content: Union[str, List[ContentItem]] = ""
 
 
 class ChatRequest(BaseModel):
@@ -31,11 +42,14 @@ class ChatRequest(BaseModel):
 
 @router.post("/chat/completions")
 async def chat_completions(req: ChatRequest):
-    """流式聊天（SSE）。enable_rag=true 时先检索法规注入 system 提示。"""
+    """流式聊天（SSE）。enable_rag=true 时先检索法规注入 system 提示。
+    content 支持字符串或 [{type:text},{type:image_url}] 数组（图片 base64），
+    RAG 检索只取其中的文本部分，图片项原样透传给 Qwen 引擎。"""
     if not req.stream:
         raise HTTPException(status_code=422, detail="暂只支持 stream=true")
 
-    messages = [{"role": m.role, "content": m.content} for m in req.messages]
+    # model_dump 把 content 规整成 str 或 list[dict]，方便后端取文本 / 透传
+    messages = [m.model_dump() for m in req.messages]
     try:
         # build（检索+注入）在流开始前完成：抛错能正常转 HTTP 错误，
         # 不会漏成"200 + 残缺 SSE body"

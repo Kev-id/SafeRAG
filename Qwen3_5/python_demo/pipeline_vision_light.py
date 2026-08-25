@@ -10,11 +10,11 @@
 #   python pipeline_vision_light.py -m ../path/model.bmodel -c ../config \
 #       -p "这张图里有什么 @/path/image.png"
 #
-# The class API mirrors server.py's run_chat so the HTTP layer can reuse it
-# verbatim later:
+# HTTP-facing API (server.py reuses these verbatim):
 #   m = Qwen3_5(args)
-#   text = m.run_image([{"role":"user","content":[{"type":"text","text":"..."},
-#                        {"type":"image_url","image_url":{"url":"data:..."}}]}])
+#   text   = m.run_image([{"role":"user","content":[{"type":"text","text":"..."},
+#                          {"type":"image_url","image_url":{"url":"data:..."}}]}])
+#   stream = m.stream_image(messages)   # generator: yields each decoded word
 #
 # NOTE on --vision_t: the bmodel's ViT input width (VIT_DIMS) is not exposed
 # by chat.cpp.  VIT_DIMS == 3 * vision_t * 16 * 16, so vision_t is 1 if the
@@ -173,15 +173,14 @@ class Qwen3_5:
             pre_patches += num_patches
 
     # ------------------------------------------------------------------
-    # Main entry
+    # Core: prefill + autoregressive decode (shared by run_image / stream)
     # ------------------------------------------------------------------
 
-    def run_image(self, messages, max_tokens=None, clear_history=True, verbose=False):
-        """Stateless single-turn image+text inference (mirrors server.run_chat).
+    def _prefill(self, messages, clear_history=True):
+        """Render + tokenize + embed + ViT + first forward.
 
-        `messages` is OpenAI-format; content may be a str or a list of
-        {type:text} / {type:image_url,image_url:{url:...}} items.  Returns the
-        assistant's text with <think> blocks stripped.
+        Sets self.max_posid; records timing into self._profile.  Returns the
+        first decoded token.  Raises ValueError if the prompt is too long.
         """
         if not messages:
             raise ValueError("messages must not be empty")
@@ -240,9 +239,22 @@ class Qwen3_5:
         token = self.forward_prefill(position_ids.astype(np.int32).reshape(-1))
         _t_prefill = time.time()
 
-        # ---- autoregressive decode ----
+        self._profile = {
+            "prep_s": _t_prep - _t_start,   # image decode/resize/normalize + tokenize
+            "embed_s": _t_embed - _t_prep,  # embedding (TPU)
+            "vision_s": _t_vit - _t_embed if has_vision else 0.0,  # ViT (TPU)
+            "prefill_s": _t_prefill - (_t_vit if has_vision else _t_embed),  # LLM prefill -> first token
+            "ttft_s": _t_prefill - _t_start,
+            "tokens": 0,
+            "gen_s": 0.0,
+        }
+        self._t_prefill = _t_prefill
+        return token
+
+    def _decode_words(self, token, max_tokens=None, verbose=False):
+        """Generator: yield each complete decoded word (handles multi-byte
+        UTF-8 across token boundaries) until <|im_end|> / SEQLEN / max_tokens."""
         full_word_tokens = []
-        text = ""
         tok_num = 0
         while (
             token != self.ID_IM_END
@@ -257,38 +269,48 @@ class Qwen3_5:
                     word = self.tokenizer.decode(
                         [token, token], skip_special_tokens=True
                     )[len(pre_word):]
-                text += word
                 if verbose:
                     sys.stdout.write(word)
                     sys.stdout.flush()
                 full_word_tokens = []
+                if word:
+                    yield word
             self.max_posid += 1
             position_ids = np.array(
                 [self.max_posid, self.max_posid, self.max_posid], dtype=np.int32
             )
             token = self.model.forward_next(position_ids)
             tok_num += 1
-
         self.history_max_posid = self.max_posid + 2
-        _t_end = time.time()
-        self.last_stats = {
-            "prep_s": _t_prep - _t_start,   # image decode/resize/normalize + tokenize
-            "embed_s": _t_embed - _t_prep,  # embedding (TPU)
-            "vision_s": _t_vit - _t_embed if has_vision else 0.0,  # ViT (TPU)
-            "prefill_s": _t_prefill - (_t_vit if has_vision else _t_embed),  # LLM prefill -> first token
-            "ttft_s": _t_prefill - _t_start,
-            "tokens": tok_num,
-            "gen_s": _t_end - _t_prefill,
-        }
+        self._profile["tokens"] = tok_num
+        self._profile["gen_s"] = time.time() - self._t_prefill
+
+    def run_image(self, messages, max_tokens=None, clear_history=True, verbose=False):
+        """Stateless single-turn image+text inference (mirrors server.run_chat).
+
+        `messages` is OpenAI-format; content may be a str or a list of
+        {type:text} / {type:image_url,image_url:{url:...}} items.  Returns the
+        assistant's text with <think> blocks stripped.  With `verbose=True`
+        every decoded word is streamed to stdout as it is generated (CLI use);
+        the HTTP server leaves it off and handles its own SSE streaming.
+        """
+        token = self._prefill(messages, clear_history=clear_history)
+        text = ""
+        for word in self._decode_words(token, max_tokens=max_tokens, verbose=verbose):
+            text += word
         if verbose:
-            s = self.last_stats
-            sys.stdout.write(
-                f"\n[prep {s['prep_s']:.2f}s | embed {s['embed_s']:.2f}s"
-                f" | vit {s['vision_s']:.2f}s | lm_prefill {s['prefill_s']:.2f}s"
-                f" | TTFT {s['ttft_s']:.2f}s | decode {s['tokens']}tok/{s['gen_s']:.2f}s]\n"
-            )
+            sys.stdout.write("\n")
             sys.stdout.flush()
+        self.last_stats = dict(self._profile)
         return self._strip_thinking(text)
+
+    def stream_image(self, messages, max_tokens=None, clear_history=True):
+        """Generator for HTTP streaming: yields each decoded word in order.
+        No <think> stripping (impossible mid-stream); the server forwards the
+        raw deltas and the client renders them.  Raises ValueError before the
+        first word if the prompt is too long."""
+        token = self._prefill(messages, clear_history=clear_history)
+        yield from self._decode_words(token, max_tokens=max_tokens)
 
     def chat(self, max_tokens=None):
         """Interactive multi-turn chat (mirrors pipeline.chat).  Attach an image
@@ -374,7 +396,6 @@ def main(args):
     start = time.time()
     model.run_image(messages, max_tokens=args.max_tokens, verbose=True)
     elapsed = time.time() - start
-    print(f"\n[elapsed {elapsed:.2f}s]")
     print(f"\n[elapsed {elapsed:.2f}s]")
     if model.support_history:
         print(f"Total Tokens: {model.model.history_length}")
