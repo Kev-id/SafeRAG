@@ -185,7 +185,9 @@ class Qwen3_5:
         """
         if not messages:
             raise ValueError("messages must not be empty")
+        _t_start = time.time()
         pixel_values, image_grid_thw = self._collect_visuals(messages)
+        _t_prep = time.time()
         has_vision = pixel_values is not None
 
         if clear_history:
@@ -224,17 +226,19 @@ class Qwen3_5:
 
         # ---- prefill ----
         self.model.forward_embed(input_ids.astype(np.int32))
+        _t_embed = time.time()
         if has_vision:
             self._vit_process(input_ids, pixel_values, image_grid_thw)
+            _t_vit = time.time()
             rope = get_rope_index(input_ids, image_grid_thw, self.ID_IMAGE_PAD,
                                   self.ID_VISION_START, self.spatial_merge_size)
             position_ids = rope[:, 0, :]  # (3, L); NOT rope[0], which is one plane only
             self.max_posid = int(position_ids.max())
-            token = self.forward_prefill(position_ids.astype(np.int32).reshape(-1))
         else:
             position_ids = np.tile(np.arange(token_len), 3).astype(np.int32)
             self.max_posid = token_len - 1
-            token = self.forward_prefill(position_ids)
+        token = self.forward_prefill(position_ids.astype(np.int32).reshape(-1))
+        _t_prefill = time.time()
 
         # ---- autoregressive decode ----
         full_word_tokens = []
@@ -266,8 +270,23 @@ class Qwen3_5:
             tok_num += 1
 
         self.history_max_posid = self.max_posid + 2
+        _t_end = time.time()
+        self.last_stats = {
+            "prep_s": _t_prep - _t_start,   # image decode/resize/normalize + tokenize
+            "embed_s": _t_embed - _t_prep,  # embedding (TPU)
+            "vision_s": _t_vit - _t_embed if has_vision else 0.0,  # ViT (TPU)
+            "prefill_s": _t_prefill - (_t_vit if has_vision else _t_embed),  # LLM prefill -> first token
+            "ttft_s": _t_prefill - _t_start,
+            "tokens": tok_num,
+            "gen_s": _t_end - _t_prefill,
+        }
         if verbose:
-            sys.stdout.write("\n")
+            s = self.last_stats
+            sys.stdout.write(
+                f"\n[prep {s['prep_s']:.2f}s | embed {s['embed_s']:.2f}s"
+                f" | vit {s['vision_s']:.2f}s | lm_prefill {s['prefill_s']:.2f}s"
+                f" | TTFT {s['ttft_s']:.2f}s | decode {s['tokens']}tok/{s['gen_s']:.2f}s]\n"
+            )
             sys.stdout.flush()
         return self._strip_thinking(text)
 
