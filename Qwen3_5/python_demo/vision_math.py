@@ -257,6 +257,15 @@ def expand_image_pads(input_ids, image_grid_thw, image_pad_id, merge_size):
     tokens (one per merged LLM embedding slot), so the ViT output written by
     forward_vit lands exactly on the right positions.  Returns (1, L') int64."""
     ids = list(np.asarray(input_ids)[0])
+    n_pads = sum(1 for t in ids if t == image_pad_id)
+    n_imgs = len(np.asarray(image_grid_thw))
+    if n_pads != n_imgs:
+        raise ValueError(
+            f"image placeholder mismatch: {n_pads} <|image_pad|> token(s) in input "
+            f"but {n_imgs} image(s) collected. If a text item was demoted to an "
+            "image, make sure content dicts carry no 'image_url': null key "
+            "(chat template matches by key presence)."
+        )
     out = []
     gi = 0
     for tok in ids:

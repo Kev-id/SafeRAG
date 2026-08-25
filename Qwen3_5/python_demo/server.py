@@ -155,7 +155,9 @@ def run_chat(messages: List[ChatMessage], max_tokens: Optional[int] = None) -> s
     global lock.
     """
     m = get_model()
-    msgs = [msg.model_dump() for msg in messages]
+    # exclude_none 是关键：去掉 text 项的 "image_url": None，否则 chat_template
+    # 的 `'image_url' in item` 会把文本项误判成图，渲染出多余的 image_pad。
+    msgs = [msg.model_dump(exclude_none=True) for msg in messages]
 
     if _has_image(msgs):
         try:
@@ -270,7 +272,7 @@ def run_chat_stream(messages: List[ChatMessage], model_name: str, chat_id: str, 
     m = get_model()
     created = int(time.time())
 
-    msgs = [msg.model_dump() for msg in messages]
+    msgs = [msg.model_dump(exclude_none=True) for msg in messages]
     if _has_image(msgs):
         yield from _stream_vision(msgs, model_name, chat_id, max_tokens, created)
         return

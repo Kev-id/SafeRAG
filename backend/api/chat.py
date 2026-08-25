@@ -48,8 +48,10 @@ async def chat_completions(req: ChatRequest):
     if not req.stream:
         raise HTTPException(status_code=422, detail="暂只支持 stream=true")
 
-    # model_dump 把 content 规整成 str 或 list[dict]，方便后端取文本 / 透传
-    messages = [m.model_dump() for m in req.messages]
+    # model_dump 把 content 规整成 str 或 list[dict]，方便后端取文本 / 透传。
+    # exclude_none=True 至关重要：去掉 text 项身上的 "image_url": None，否则
+    # Qwen chat_template 用 `'image_url' in item` 判断会把纯文本项也当成图。
+    messages = [m.model_dump(exclude_none=True) for m in req.messages]
     try:
         # build（检索+注入）在流开始前完成：抛错能正常转 HTTP 错误，
         # 不会漏成"200 + 残缺 SSE body"
