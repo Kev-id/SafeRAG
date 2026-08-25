@@ -1,13 +1,43 @@
-fastapi>=0.111.0
-uvicorn[standard]>=0.30.0
-httpx>=0.27.0
-pydantic>=2.0.0
-pytest>=7.0.0
-onnxruntime>=1.17.0
-tokenizers>=0.15.0
-chromadb>=0.4.0
-jieba>=0.42.1
-rank_bm25>=0.2.2
-python-multipart>=0.0.9
-python-docx>=1.1.0
-pypdf>=4.0.0
+# =============================================================================
+# SafeRAG 全项目依赖 —— 按 TPU 盒子实测版本锁定（Python 3.10.12, 2026-08-25）
+#
+# 分组说明:
+#   ① Web 后端框架
+#   ② RAG / 文档处理
+#   ③ Qwen3.5 视觉推理（Qwen3_5/python_demo）—— transformers 勿升级
+#   ④ 仅重编 chat.so 需要，运行时不需要
+#
+# 安装全部: pip install -r backend/requirements.txt
+# =============================================================================
+
+# --- ① Web / API ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+httpx==0.28.1
+pydantic==2.13.4
+pydantic_core==2.46.4
+python-multipart==0.0.32
+pytest==9.1.1
+
+# --- ② RAG / 文档处理 ---
+onnxruntime==1.23.2
+chromadb==1.5.9
+jieba==0.42.1
+rank_bm25==0.2.2
+python-docx==1.2.0
+pypdf==6.16.2
+tokenizers==0.22.2
+
+# --- ③ Qwen3.5 视觉推理（pipeline_vision_light.py / vision_math.py） ---
+transformers==5.14.1
+numpy==2.2.6
+Pillow==12.3.0
+jinja2==3.1.6
+PyYAML==6.0.3
+
+# --- ④ 仅重编 chat.so 需要；纯运行时不需要 ---
+pybind11==3.1.0
+
+# 备注: transformers 锁定 5.14.1，勿升级。当前视觉链路使用两段式
+# chat-template 渲染 + image_pad 占位符展开，已验证在该版本上可用；
+# 升级 transformers 可能改变 tokenize / special-token 行为，破坏视觉链路。
