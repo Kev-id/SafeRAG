@@ -18,19 +18,19 @@ from datetime import datetime, timezone
 # 保证 `python scripts/build_knowledge_base.py` 直接跑也能 import backend 包
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.core.chunker import read_text, file_md5
+from backend.core.chunker import file_md5
 from backend.core.config import KB_SOURCE_DIR
 from backend.core.kb_store import get_collection, upsert_file_chunks, delete_file_chunks
-from backend.core.legal_parser import iter_legal_chunks, parse_to_tree
+from backend.core.legal_parser import extract_text, iter_legal_chunks, parse_to_tree
 from backend.repositories import kb_file_repo, kb_tree_repo
 
 logger = logging.getLogger(__name__)
 
 
-def _md5_of(path: str) -> str:
-    """读源文件算 md5（轻量跳过判据）。与 parse_to_tree 内部算的 md5 同源同值。"""
-    # TODO 多格式：.docx/.pdf 的 md5 语义要在 _extract_text 落地后对齐这里
-    return file_md5(read_text(path))
+def _md5_of(path: str, filename: str) -> str:
+    """读源文件按格式提取文本算 md5（轻量跳过判据）。与 parse_to_tree 内算的同源同值。"""
+    with open(path, "rb") as f:
+        return file_md5(extract_text(f.read(), filename))
 
 
 def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
@@ -58,7 +58,7 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
         # 没变就跳过（登记册的 md5 是真源，不用拉 ChromaDB）。
         # 这里的 md5 仅用于判改：与 parse_to_tree 内算的同源同值（解码后文本的 md5），
         # 解析后还会再算一次确认。轻量所以单独跑。
-        md5 = _md5_of(path)
+        md5 = _md5_of(path, filename)
         if not force and kf.get("md5") == md5:
             skipped += 1
             continue

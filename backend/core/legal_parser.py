@@ -61,18 +61,55 @@ def _split_long_text(text: str, max_chars: int) -> list[str]:
     return chunks
 
 
-def _extract_text(content: bytes, filename: str) -> str:
-    """按文件名后缀把 bytes 变成文本（新格式在这里加一行）。
+def extract_text(content: bytes, filename: str) -> str:
+    """按文件名后缀把 bytes 变成文本（规则文档入库的统一文本提取入口）。
 
-    .txt：现有 decode_text 自动兼容 utf-8/gbk/gb18030。
-    .docx/.pdf：暂未实现——真要支持时在此导入 python-docx/pypdf 加分支即可。
+    .txt  ：现有 decode_text 自动兼容 utf-8/gbk/gb18030。
+    .docx ：python-docx 按段落抽文本（Heading/正文段落都取 text，默认为条文行，
+            txt 解析器按"第X章/条第X条"开头自然建树）。
+    .pdf  ：pypdf 抽文本层；扫描件无文本层 → 抛 ValueError。
+    各格式用延迟 import——txt-only 部署不装 python-docx/pypdf 也能跑，只有真处理
+    docx/pdf 时才需要那两个库。
     """
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     if ext == "txt":
         return decode_text(content)
-    if ext in ("docx", "pdf"):
-        raise NotImplementedError(f"暂未支持 .{ext}，请在 _extract_text 加提取器")
+    if ext == "docx":
+        return _extract_docx(content)
+    if ext == "pdf":
+        return _extract_pdf(content)
     raise ValueError(f"不支持的文件后缀: .{ext}")
+
+
+def _extract_docx(content: bytes) -> str:
+    """python-docx 按段落抽文本，每段一行。"""
+    import io
+    from docx import Document
+
+    doc = Document(io.BytesIO(content))
+    lines = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    if not lines:
+        raise ValueError("docx 无文本内容")
+    return "\n".join(lines)
+
+
+def _extract_pdf(content: bytes) -> str:
+    """pypdf 抽文本层；扫描件/损坏 PDF 明确报错（转 ValueError 让上层统一处理）。"""
+    import io
+    from pypdf import PdfReader
+    from pypdf.errors import PdfReadError
+
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        parts = [page.extract_text() or "" for page in reader.pages]
+    except PdfReadError as e:
+        raise ValueError(f"无法解析 PDF: {e}") from e
+    text = "\n".join(p.strip() for p in parts).strip()
+    # 合法结构但无文本层（扫描件/图片型）：extract_text 为空 → 明确提示而不是建垃圾树。
+    # 阈值 30：短但合法的单页文档（几十字）不应被误杀，法规文档远长于此。
+    if len(text) < 30:
+        raise ValueError("PDF 无可用文本（可能是扫描件/图片型），暂不支持，请提供文本型 PDF")
+    return text
 
 
 def parse_to_tree(content: bytes, filename: str, file_type: str) -> tuple[dict, str]:
@@ -85,7 +122,7 @@ def parse_to_tree(content: bytes, filename: str, file_type: str) -> tuple[dict, 
     其它文本 → 最简文档树（单根 article 节点装整段正文），与法规走同一条入库路径，
     入库层不再需要兜底——所有文本统一先变树，再 iter_legal_chunks 出块。
     """
-    text = _extract_text(content, filename)
+    text = extract_text(content, filename)
     if not text.strip():
         raise ValueError("空文本")
     md5 = file_md5(text)

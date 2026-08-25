@@ -89,10 +89,53 @@ def test_plain_text_wrapped_into_minimal_tree():
 
 
 def test_parse_to_tree_rejects_unsupported_ext():
-    """未实现的后缀抛 NotImplementedError（未来真要加 docx/pdf 时才会放开白名单）。"""
+    """未知后缀抛 ValueError；docx 已支持（走 python-docx，非 NotImplementedError）。"""
     import pytest
-    with pytest.raises(NotImplementedError):
-        parse_to_tree(b"whatever", filename="x.docx", file_type="法律")
+    with pytest.raises(ValueError):
+        parse_to_tree(b"whatever", filename="x.csv", file_type="法律")
+
+
+def test_pdf_scan_rejected():
+    """扫描件/无文本层 PDF 抛明确 ValueError，不建垃圾树。"""
+    import pytest
+    # 无文本层：合法结构但内容为空的 PDF（reportlab 空页），extract_text 返回空
+    try:
+        from reportlab.pdfgen import canvas
+        import io
+        buf = io.BytesIO()
+        c = canvas.Canvas(buf)
+        c.showPage()
+        c.save()
+        pdf_bytes = buf.getvalue()
+    except ImportError:
+        pytest.skip("reportlab 未安装")
+    with pytest.raises(ValueError):
+        parse_to_tree(pdf_bytes, filename="scan.pdf", file_type="法律")
+
+
+def test_docx_parsed_to_tree():
+    """docx 按段落提取 → 法规结构建树（接缝兑现）。"""
+    import pytest
+    import io
+    try:
+        from docx import Document
+    except ImportError:
+        pytest.skip("python-docx 未安装")
+    doc = Document()
+    for t in [
+        "中华人民共和国防震减灾法",
+        "第一章  总则",
+        "第一条  为了防御和减轻地震灾害，制定本法。",
+        "第二条  适用本法。",
+    ]:
+        doc.add_paragraph(t)
+    buf = io.BytesIO()
+    doc.save(buf)
+
+    tree, md5 = parse_to_tree(buf.getvalue(), filename="法规.docx", file_type="法律")
+    assert tree["doc"]["title"] == "中华人民共和国防震减灾法"
+    assert len(tree["tree"]) >= 1
+    assert isinstance(md5, str) and len(md5) == 32
 
 
 def test_kb_tree_repo_roundtrip_is_faithful():

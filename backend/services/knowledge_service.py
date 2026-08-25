@@ -18,7 +18,7 @@ from backend.core.config import KB_SOURCE_DIR
 from backend.core.retriever import reset_retriever
 from backend.core.chunker import read_text
 from backend.core.kb_store import delete_file_chunks, upsert_file_chunks
-from backend.core.legal_parser import iter_legal_chunks, parse_to_tree
+from backend.core.legal_parser import extract_text, iter_legal_chunks, parse_to_tree
 from backend.repositories import kb_file_repo, kb_tree_repo
 
 logger = logging.getLogger(__name__)
@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 # 单文件上传大小上限（防误传大文件撑爆磁盘）
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
 
-# 允许的文件后缀（新格式在 legal_parser._extract_text 加提取器后，同步放开这里即可）
-ALLOWED_EXTS = {".txt"}
+# 允许的文件后缀（新格式在 legal_parser.extract_text 加提取器后，同步放开这里即可）
+ALLOWED_EXTS = {".txt", ".docx", ".pdf"}
 
 
 async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
@@ -113,9 +113,10 @@ async def get_kb_file(filename: str) -> dict:
     file_path = os.path.join(KB_SOURCE_DIR, safe_name)
     if os.path.isfile(file_path):
         try:
-            kf["content"] = read_text(file_path)
+            with open(file_path, "rb") as f:
+                kf["content"] = extract_text(f.read(), safe_name)
         except ValueError:
-            logger.warning("读取文件正文失败（编码问题）: %s", safe_name)
+            logger.warning("读取文件正文失败: %s", safe_name)
             kf["content"] = None
     else:
         kf["content"] = None
