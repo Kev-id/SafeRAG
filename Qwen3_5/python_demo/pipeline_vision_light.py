@@ -192,14 +192,17 @@ class Qwen3_5:
             self.model.clear_history()
             self.history_max_posid = 0
 
-        inputs = self.tokenizer.apply_chat_template(
+        # Render the template to a plain string first, then encode it.  The
+        # older transformers on the TPU box cannot tokenize=True over messages
+        # whose content carries image dicts (it feeds non-str into
+        # encode_batch); the two-step form works on every version.
+        rendered = self.tokenizer.apply_chat_template(
             messages,
-            tokenize=True,
+            tokenize=False,
             add_generation_prompt=True,
-            return_dict=True,
-            return_tensors="np",
         )
-        input_ids = np.asarray(inputs["input_ids"])
+        tokenized = self.tokenizer(rendered, add_special_tokens=False, return_tensors="np")
+        input_ids = np.asarray(tokenized["input_ids"])
         if has_vision:
             input_ids = expand_image_pads(input_ids, image_grid_thw, self.ID_IMAGE_PAD,
                                           self.spatial_merge_size)
