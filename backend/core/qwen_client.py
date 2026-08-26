@@ -170,6 +170,9 @@ async def chat_stream(messages: list[dict]) -> AsyncIterator[str]:
     转发策略：不改 Qwen 的 chunk，原样 yield 每一行（含 `data: [DONE]`），
     前端拿到的是和直连 Qwen 完全一致的 OpenAI 兼容 SSE，解析逻辑不用改。
 
+    聊天请求在引擎侧默认增量续 KV（同会话图片只首轮编码一次）；
+    「切新会话」请先调 clear_session()。
+
     错误：连接失败/超时/非 200 → 抛 QwenError（在流未开始前由上层转 503/500；
     流开始后中断 → 由调用方决定怎么收尾）。
     """
@@ -207,3 +210,18 @@ async def chat_stream(messages: list[dict]) -> AsyncIterator[str]:
         raise QwenError(f"无法连接 Qwen 推理引擎: {e}")
     finally:
         logger.info("Qwen 流式调用结束，耗时 %.1fs", time.monotonic() - start)
+
+
+async def clear_session() -> None:
+    """清空聊天引擎的当前 KV 会话 —— 前端切到新会话 / 清空对话时调用。
+
+    聊天默认在同一 KV 上增量续（同会话图片只首轮编码一次）；开新会话必须先
+    调本函数清掉旧 KV，否则旧会话上下文会污染新会话。
+    """
+    logger.info("清空聊天引擎会话 KV")
+    try:
+        resp = await _get_chat_client().post("/session/clear")
+    except httpx.RequestError as e:
+        raise QwenError(f"无法连接 Qwen 推理引擎: {e}")
+    if resp.status_code != 200:
+        raise QwenError(f"清空会话失败: 引擎返回 HTTP {resp.status_code}")

@@ -44,7 +44,10 @@ class ChatRequest(BaseModel):
 async def chat_completions(req: ChatRequest):
     """流式聊天（SSE）。enable_rag=true 时先检索法规注入 system 提示。
     content 支持字符串或 [{type:text},{type:image_url}] 数组（图片 base64），
-    RAG 检索只取其中的文本部分，图片项原样透传给 Qwen 引擎。"""
+    RAG 检索只取其中的文本部分，图片项原样透传给 Qwen 引擎。
+
+    聊天请求在引擎侧默认增量续 KV（同会话图片只首轮编码一次）；
+    前端切新会话请先调 POST /chat/session/clear。"""
     if not req.stream:
         raise HTTPException(status_code=422, detail="暂只支持 stream=true")
 
@@ -67,3 +70,16 @@ async def chat_completions(req: ChatRequest):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
     )
+
+
+@router.post("/chat/session/clear")
+async def clear_chat_session():
+    """清空聊天引擎的当前 KV 会话 —— 前端切到新会话 / 清空对话时调用。
+
+    聊天默认在同一 KV 上增量续（同会话图片只首轮编码一次）；开新会话必须先调
+    本端点清掉旧 KV，否则旧会话上下文会污染新会话。"""
+    try:
+        await qwen_client.clear_session()
+    except qwen_client.QwenError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return {"status": "ok"}

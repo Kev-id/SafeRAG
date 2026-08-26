@@ -144,94 +144,32 @@ def _has_image(messages: List[dict]) -> bool:
 # OpenAI-compatible inference
 # ---------------------------------------------------------------------------
 
-def run_chat(messages: List[ChatMessage], max_tokens: Optional[int] = None) -> str:
+def run_chat(messages: List[ChatMessage], max_tokens: Optional[int] = None,
+             clear_history: bool = False) -> str:
     """
     Stateless multi-turn inference (text or image).
 
-    Text-only requests reuse the plain-text path (identical to the original
-    pipeline_text server).  Requests whose last user message carries an image
-    run through run_image, which tokenizes the full conversation, runs the TPU
-    ViT on the image, and returns the assistant's reply.  Thread-safe via the
-    global lock.
+    统一走 run_image（内部 _prefill 支持纯文本与图片、支持 clear_history 增量）。
+    clear_history=True 清空 KV 从零开始（新会话）；False 则在现有 KV 上增量 prefill
+    （同会话延续，图片 ViT 只算一次）。Thread-safe via the global lock.
+
+    对话请求默认增量（False）；「切新会话」由独立的 POST /session/clear 清空 KV。
     """
     m = get_model()
     # exclude_none 是关键：去掉 text 项的 "image_url": None，否则 chat_template
     # 的 `'image_url' in item` 会把文本项误判成图，渲染出多余的 image_pad。
     msgs = [msg.model_dump(exclude_none=True) for msg in messages]
 
-    if _has_image(msgs):
-        try:
-            with _model_lock:
-                return m.run_image(msgs, max_tokens=max_tokens)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    # ---- text-only path (unchanged) ----
-    qwen_msgs = [{"role": msg.role, "content": msg.content} for msg in messages]
-
-    with _model_lock:
-        m.model.clear_history()
-        m.history_max_posid = 0
-
-        inputs = m.tokenizer.apply_chat_template(
-            qwen_msgs,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
-            return_tensors="np",
-        )
-        token_len = inputs.input_ids.size
-
-        max_input = m.model.SEQLEN if m.model.support_history else m.model.MAX_INPUT_LENGTH
-        if token_len > max_input:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Input length {token_len} exceeds maximum {max_input}",
-            )
-
-        # ---- prefill ----
-        m.model.forward_embed(inputs.input_ids)
-        position_ids = 3 * [i for i in range(token_len)]
-        m.max_posid = token_len - 1
-
-        token = m.forward_prefill(np.array(position_ids, dtype=np.int32))
-
-        # ---- autoregressive decode ----
-        full_word_tokens: List[int] = []
-        text = ""
-        tok_num = 0
-        im_end = m.ID_IM_END
-
-        while (
-            token != im_end
-            and m.model.history_length < m.model.SEQLEN
-            and (max_tokens is None or tok_num < max_tokens)
-        ):
-            full_word_tokens.append(token)
-            word = m.tokenizer.decode(full_word_tokens, skip_special_tokens=True)
-            if "�" not in word:
-                if len(full_word_tokens) == 1:
-                    pre_word = word
-                    word = m.tokenizer.decode(
-                        [token, token], skip_special_tokens=True
-                    )[len(pre_word):]
-                text += word
-                full_word_tokens = []
-            m.max_posid += 1
-            position_ids = np.array(
-                [m.max_posid, m.max_posid, m.max_posid], dtype=np.int32
-            )
-            token = m.model.forward_next(position_ids)
-            tok_num += 1
-
-        m.history_max_posid = m.max_posid + 2
-
-    return _strip_thinking(text)
+    try:
+        with _model_lock:
+            return m.run_image(msgs, max_tokens=max_tokens, clear_history=clear_history)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def _stream_vision(msgs: List[dict], model_name: str, chat_id: str,
-                   max_tokens: Optional[int], created: int):
-    """SSE generator for image requests — streams stream_image() words."""
+                   max_tokens: Optional[int], created: int, clear_history: bool = True):
+    """SSE generator for image/text requests — streams stream_image() words."""
     m = get_model()
 
     first_chunk = ChatCompletionChunk(
@@ -244,7 +182,7 @@ def _stream_vision(msgs: List[dict], model_name: str, chat_id: str,
         # Lock held for the whole stream (busy stays true while generating),
         # matching the text-only streaming path below.
         with _model_lock:
-            for word in m.stream_image(msgs, max_tokens=max_tokens):
+            for word in m.stream_image(msgs, max_tokens=max_tokens, clear_history=clear_history):
                 chunk = ChatCompletionChunk(
                     id=chat_id, created=created, model=model_name,
                     choices=[StreamChoice(delta=DeltaMessage(content=word))],
@@ -267,98 +205,19 @@ def _stream_vision(msgs: List[dict], model_name: str, chat_id: str,
     yield "data: [DONE]\n\n"
 
 
-def run_chat_stream(messages: List[ChatMessage], model_name: str, chat_id: str, max_tokens: Optional[int] = None):
-    """SSE generator — yields "data: {...}\n\n" lines for streaming."""
+def run_chat_stream(messages: List[ChatMessage], model_name: str, chat_id: str,
+                    max_tokens: Optional[int] = None, clear_history: bool = False):
+    """SSE generator — yields "data: {...}\n\n" lines for streaming.
+
+    统一走 _stream_vision（内部 stream_image 的 _prefill 支持纯文本与图片增量）。
+    对话请求默认增量（False）；「切新会话」由独立的 POST /session/clear 清空 KV。
+    """
     m = get_model()
     created = int(time.time())
 
     msgs = [msg.model_dump(exclude_none=True) for msg in messages]
-    if _has_image(msgs):
-        yield from _stream_vision(msgs, model_name, chat_id, max_tokens, created)
-        return
-
-    # ---- text-only streaming (unchanged) ----
-    qwen_msgs = [{"role": msg.role, "content": msg.content} for msg in messages]
-
-    with _model_lock:
-        m.model.clear_history()
-        m.history_max_posid = 0
-
-        inputs = m.tokenizer.apply_chat_template(
-            qwen_msgs,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_dict=True,
-            return_tensors="np",
-        )
-        token_len = inputs.input_ids.size
-
-        max_input = m.model.SEQLEN if m.model.support_history else m.model.MAX_INPUT_LENGTH
-        if token_len > max_input:
-            err_chunk = ChatCompletionChunk(
-                id=chat_id, created=created, model=model_name,
-                choices=[StreamChoice(finish_reason="error")],
-            )
-            yield f"data: {err_chunk.model_dump_json()}\n\n"
-            return
-
-        # ---- prefill ----
-        m.model.forward_embed(inputs.input_ids)
-        position_ids = 3 * [i for i in range(token_len)]
-        m.max_posid = token_len - 1
-
-        token = m.forward_prefill(np.array(position_ids, dtype=np.int32))
-
-        # ---- autoregressive decode ----
-        full_word_tokens: List[int] = []
-        text = ""
-        tok_num = 0
-        im_end = m.ID_IM_END
-
-        # First chunk with role
-        first_chunk = ChatCompletionChunk(
-            id=chat_id, created=created, model=model_name,
-            choices=[StreamChoice(delta=DeltaMessage(role="assistant"))],
-        )
-        yield f"data: {first_chunk.model_dump_json()}\n\n"
-
-        while (
-            token != im_end
-            and m.model.history_length < m.model.SEQLEN
-            and (max_tokens is None or tok_num < max_tokens)
-        ):
-            full_word_tokens.append(token)
-            word = m.tokenizer.decode(full_word_tokens, skip_special_tokens=True)
-            if "�" not in word:
-                if len(full_word_tokens) == 1:
-                    pre_word = word
-                    word = m.tokenizer.decode(
-                        [token, token], skip_special_tokens=True
-                    )[len(pre_word):]
-                text += word
-                # Send this word as a delta chunk
-                chunk = ChatCompletionChunk(
-                    id=chat_id, created=created, model=model_name,
-                    choices=[StreamChoice(delta=DeltaMessage(content=word))],
-                )
-                yield f"data: {chunk.model_dump_json()}\n\n"
-                full_word_tokens = []
-            m.max_posid += 1
-            position_ids = np.array(
-                [m.max_posid, m.max_posid, m.max_posid], dtype=np.int32
-            )
-            token = m.model.forward_next(position_ids)
-            tok_num += 1
-
-        m.history_max_posid = m.max_posid + 2
-
-        # Final chunk
-        final_chunk = ChatCompletionChunk(
-            id=chat_id, created=created, model=model_name,
-            choices=[StreamChoice(delta=DeltaMessage(), finish_reason="stop")],
-        )
-        yield f"data: {final_chunk.model_dump_json()}\n\n"
-        yield "data: [DONE]\n\n"
+    yield from _stream_vision(msgs, model_name, chat_id, max_tokens, created,
+                              clear_history=clear_history)
 
 
 # ---------------------------------------------------------------------------
@@ -372,6 +231,20 @@ app = FastAPI(title="Qwen3.5 Vision API", version="1.1.0")
 async def health():
     """Health check. busy 表示引擎正在跑推理（模型锁被持有）。"""
     return {"status": "ok", "busy": _model_lock.locked()}
+
+
+@app.post("/session/clear")
+async def session_clear():
+    """清空当前 KV session —— 前端切换到新会话 / 清空对话时调用。
+
+    聊天请求默认在同一 KV 上增量续（图只首轮编码一次）；要开新会话
+    必须先调本端点把旧 KV 清掉，否则旧会话上下文会污染新会话。
+    """
+    m = get_model()
+    with _model_lock:
+        m.model.clear_history()
+        m.history_max_posid = 0
+    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------
@@ -404,6 +277,8 @@ async def chat_completions(req: ChatCompletionRequest):
 
     chat_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
+    # 对话请求默认增量续 KV（run_chat/_stream_vision 的 clear_history 默认 False）；
+    # 「切新会话/清空」由独立的 POST /session/clear 触发。
     if req.stream:
         return StreamingResponse(
             run_chat_stream(req.messages, req.model, chat_id, req.max_tokens),
