@@ -29,6 +29,7 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
 # 允许的文件后缀（新格式在 legal_parser.extract_text 加提取器后，同步放开这里即可）
 ALLOWED_EXTS = {".txt", ".docx", ".pdf"}
 
+_wake_kb = asyncio.Event()
 
 async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
     """保存上传文件，登记到 SQLite，解析成文档树，再从树切块写入索引。
@@ -50,8 +51,17 @@ async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     kb_file_repo.upsert({
         "filename": safe_name, "file_type": file_type, "size": len(content),
-        "chunk_count": 0, "status": "building", "message": None, "updated_at": now,
+        "chunk_count": 0, "status": "queued", "message": None, "updated_at": now,
     })
+    _wake_kb.set()
+    return {"message": f"已上传文件: {safe_name}，正在解析入库，请稍后查询状态。"}
+
+async def _process_kb_file(kf: dict) -> dict:
+    """解析成文档树，再从树切块写入索引。"""
+    safe_name = kf["filename"]
+    file_type = kf["file_type"]
+    with open(os.path.join(KB_SOURCE_DIR, safe_name), "rb") as f:
+        content = f.read()
 
     try:
         # 解析段：bytes → 文档树（合同），CPU 密集丢线程池，落盘到 kb_trees
@@ -62,14 +72,15 @@ async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
         chunk_count = await asyncio.to_thread(
             upsert_file_chunks, safe_name, chunks, md5, metadatas
         )
-    except Exception:
+    except Exception as e:
         logger.exception("写入知识库索引失败: %s", safe_name)
+        now = datetime.now(timezone.utc).isoformat()
         kb_file_repo.upsert({
             "filename": safe_name, "file_type": file_type, "size": len(content),
-            "chunk_count": 0, "status": "failed", "message": "写入索引失败", "updated_at": now,
+            "chunk_count": 0, "status": "failed", "message": str(e), "updated_at": now,
         })
         raise
-
+    now = datetime.now(timezone.utc).isoformat()
     kb_file_repo.upsert({
         "filename": safe_name, "md5": md5, "file_type": file_type, "size": len(content),
         "chunk_count": chunk_count, "status": "ready", "message": None, "updated_at": now,
@@ -125,3 +136,22 @@ async def get_kb_file(filename: str) -> dict:
 def get_stats() -> dict:
     """获取知识库统计信息"""
     return  kb_file_repo.get_stats()
+
+
+async def worker() -> None:
+    """常驻消费协程：认领下一条 building → 解析 → 入库 → 取下一条。
+
+    单协程天然串行，替代原来的 asyncio.Lock。没任务时睡在 _wake 上，
+    被新任务唤醒；事件丢失也不影响——表里的任务下一轮必被认领。
+    """
+    logger.info("知识库文件处理 worker 已启动")
+    while True:
+        kf = kb_file_repo.claim_next()
+        if kf is None:
+            await _wake_kb.wait()
+            _wake_kb.clear()
+            continue
+        try:
+            await _process_kb_file(kf)
+        except Exception:
+            logger.exception("处理知识库文件失败: %s", kf["filename"])

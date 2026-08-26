@@ -122,3 +122,40 @@ def get_stats() -> dict:
         "total_size": row["total_size"] or 0,
         "status_counts": counts,
     }
+
+
+def claim_next() -> dict | None:
+    """原子认领下一条上传任务: queued -> processing"""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            """SELECT * FROM kb_files
+               WHERE status = 'queued'
+               ORDER BY updated_at ASC
+               LIMIT 1"""
+        ).fetchone()
+        if row is None:#如果没有排队的任务，回滚事务并返回 None
+            conn.rollback()
+            return None
+        conn.execute(
+            "UPDATE kb_files SET status = 'processing' WHERE filename = ?",
+            (row["filename"],),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return dict(row)
+
+
+def recover_stuck() -> int:
+    """恢复卡在 processing 的任务：processing -> queued"""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE kb_files SET status = 'queued' WHERE status = 'processing'"
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()

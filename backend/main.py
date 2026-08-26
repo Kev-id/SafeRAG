@@ -26,7 +26,7 @@ app = FastAPI(title="SafeRAG API", version="0.1.0")
 from backend.core.database import init_db
 from backend.core.retriever import get_retriever
 from backend.repositories import document_repo
-from backend.services import document_service
+from backend.services import document_service, knowledge_service
 
 @app.on_event("startup")
 async def on_startup():
@@ -35,8 +35,13 @@ async def on_startup():
     recovered = document_repo.recover_stuck()
     if recovered:
         logger.info("已恢复 %d 个卡在 processing 的任务", recovered)
+    recovered = knowledge_service.kb_file_repo.recover_stuck()
+    if recovered:
+        logger.info("已恢复 %d 个卡在 processing 的知识库文件", recovered)
+    
     # 拉起常驻任务消费 worker（存引用防止被 GC）
     app.state.worker_task = asyncio.create_task(document_service.worker())
+    app.state.kb_worker_task = asyncio.create_task(knowledge_service.worker())
     # 后台预热检索器（构建 BM25 可能要几秒~几十秒，异步跑不阻塞启动/首次请求）
     # to_thread 把 CPU 密集的 BM25 构建丢线程池，避免占事件循环
     app.state.retriever_warmup = asyncio.create_task(

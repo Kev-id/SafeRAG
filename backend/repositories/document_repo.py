@@ -264,7 +264,7 @@ def claim_next() -> Document | None:
     """
     conn = get_connection()
     try:
-        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("BEGIN IMMEDIATE")#begin immediate 事务锁定数据库，防止其他连接写入，确保原子性。
         row = conn.execute(
             """SELECT * FROM documents
                WHERE status = 'queued'
