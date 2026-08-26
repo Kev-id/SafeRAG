@@ -126,6 +126,13 @@ class Retriever:
     # ------------------------------------------------------------------
     # 对外接口
     # ------------------------------------------------------------------
+    def warmup(self) -> None:
+        """预热：加载 ChromaDB 全量 + 构建 BM25 索引（幂等）。
+
+        供服务启动时后台调用，让第一次检索不必等待几秒到几十秒的冷启动。
+        """
+        self._ensure_loaded()
+
     def retrieve(self, query: str, top_k: int = 5) -> list[dict]:
         """混合检索，返回 top_k 条，每条含 id/text/meta/score。"""
         self._ensure_loaded()
