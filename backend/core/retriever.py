@@ -14,6 +14,7 @@
 import logging
 import os
 import sys
+import threading
 
 # 保证 `python backend/core/retriever.py` 直接跑也能 import backend 包
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -51,30 +52,53 @@ class Retriever:
         self._docs: list[str] = []
         self._metas: list[dict] = []
         self._bm25: BM25Okapi | None = None
+        # 只保护"加载/构建 BM25"这一段；检索路径（_bm25 已就绪）不进锁
+        self._load_lock = threading.Lock()
+        # 加载是否进行中（供 health 等展示"检索器加载中"）
+        self._loading = False
 
     # ------------------------------------------------------------------
     # 加载
     # ------------------------------------------------------------------
     def _ensure_loaded(self) -> None:
-        """第一次检索时加载 ChromaDB + 构建 BM25 索引（幂等）。"""
+        """第一次检索时加载 ChromaDB + 构建 BM25 索引（幂等，线程安全）。
+
+        double-checked locking：外面先查快路径，锁内再查确认——
+        多线程（后台预热 + RAG 检索并发）同时进入时，只有真正抢到锁的
+        线程执行构建，其余等待者在锁内看到 _bm25 已就绪直接返回。
+        """
         if self._bm25 is not None:
             return
+        with self._load_lock:
+            if self._bm25 is not None:  # 可能别的线程已构建完
+                return
+            self._do_load()
 
-        client = chromadb.PersistentClient(path=self._persist_dir)
-        self._collection = client.get_collection(
-            name=self._collection_name,
-            embedding_function=BgeEmbeddingFunction(),
-        )
+    def _do_load(self) -> None:
+        """实际加载（持锁调用，仅一次）。"""
+        self._loading = True
+        try:
+            client = chromadb.PersistentClient(path=self._persist_dir)
+            self._collection = client.get_collection(
+                name=self._collection_name,
+                embedding_function=BgeEmbeddingFunction(),
+            )
 
-        data = get_all_batch(self._collection, include=["documents", "metadatas"])
-        self._ids = data["ids"]
-        self._docs = data["documents"]
-        self._metas = data["metadatas"]
+            data = get_all_batch(self._collection, include=["documents", "metadatas"])
+            self._ids = data["ids"]
+            self._docs = data["documents"]
+            self._metas = data["metadatas"]
 
-        # BM25 索引：对每个文档分词
-        tokenized = [jieba.lcut(doc) for doc in self._docs]
-        self._bm25 = BM25Okapi(tokenized)
-        logger.info("检索器已加载: %d 条文档", len(self._docs))
+            # BM25 索引：对每个文档分词
+            tokenized = [jieba.lcut(doc) for doc in self._docs]
+            self._bm25 = BM25Okapi(tokenized)
+            logger.info("检索器已加载: %d 条文档", len(self._docs))
+        finally:
+            self._loading = False
+
+    def is_loading(self) -> bool:
+        """检索器是否正在加载（后台预热期间为 True，供 health 展示）。"""
+        return self._loading
 
     # ------------------------------------------------------------------
     # 两个子检索器

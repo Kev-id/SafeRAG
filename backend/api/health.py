@@ -12,6 +12,7 @@ class HealthResponse(BaseModel):
     qwen: bool          # 文档处理引擎
     qwen_chat: bool     # 流式对话引擎
     chroma: bool
+    retriever_loading: bool = False   # 检索器（BM25）是否还在后台预热
 
 
 @router.get("/health", response_model=HealthResponse)
