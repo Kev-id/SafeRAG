@@ -24,6 +24,7 @@ from rank_bm25 import BM25Okapi
 
 from backend.core.config import KB_COLLECTION, KB_DIR
 from backend.core.embedding_client import BgeEmbeddingFunction, tokenize_with_offsets
+from backend.core.kb_store import get_all_batch
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class Retriever:
             embedding_function=BgeEmbeddingFunction(),
         )
 
-        data = self._collection.get()
+        data = get_all_batch(self._collection, include=["documents", "metadatas"])
         self._ids = data["ids"]
         self._docs = data["documents"]
         self._metas = data["metadatas"]

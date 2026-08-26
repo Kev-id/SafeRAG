@@ -89,3 +89,40 @@ def check_chroma_health() -> bool:
     except Exception as e:
         logger.error("ChromaDB 健康检查失败: %s", e)
         return False
+
+
+# 分批拉取条数：低于 SQLite 单查询变量上限（默认 999），
+# 避免全量 get() 把所有 id 拼进一条 IN 查询触发 "too many SQL variables"
+_GET_BATCH = 500
+
+
+def get_all_batch(collection, include: list[str] | None = None) -> dict:
+    """分批拉取 collection 全量数据（ids/documents/metadatas/embeddings）。
+
+    大知识库（千级文件、数万 chunk）全量调用 collection.get() 会触发
+    SQLite "too many SQL variables"（全量 id 拼进一条 IN 查询超限）。
+    用 limit/offset 分页逐批拉，规避该限制。
+
+    返回 dict: {"ids": [...], **include 中的键}。include 为 None 时按
+    chromadb 默认返回（documents + metadatas）。
+    """
+    if include is None:
+        include = ["documents", "metadatas"]
+    result: dict = {"ids": []}
+    for k in include:
+        result[k] = []
+
+    offset = 0
+    while True:
+        batch = collection.get(include=include, limit=_GET_BATCH, offset=offset)
+        ids = batch.get("ids") or []
+        if not ids:
+            break
+        result["ids"].extend(ids)
+        for k in include:
+            result[k].extend(batch.get(k) or [])
+        offset += len(ids)
+        # 防止极端情况下 offset 不前进的死循环
+        if len(ids) < _GET_BATCH:
+            break
+    return result

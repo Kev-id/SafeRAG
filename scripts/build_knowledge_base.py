@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.core.chunker import file_md5
 from backend.core.config import KB_SOURCE_DIR
-from backend.core.kb_store import get_collection, upsert_file_chunks, delete_file_chunks
+from backend.core.kb_store import get_all_batch, get_collection, upsert_file_chunks, delete_file_chunks
 from backend.core.legal_parser import extract_text, iter_legal_chunks, parse_to_tree
 from backend.repositories import kb_file_repo, kb_tree_repo
 
@@ -80,14 +80,15 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
         logger.info("已重建 %s（%d 块）", filename, chunk_count)
 
     # 清理：ChromaDB 里有、登记册里没有的孤儿块（索引损坏恢复）
+    # 用分批 get_all_batch：大知识库全量 get() 会触发 SQLite "too many SQL variables"
     collection = get_collection()
-    metas = collection.get(include=["metadatas"])["metadatas"]
+    metas = get_all_batch(collection, include=["metadatas"])["metadatas"]
     indexed_sources = {m["source"] for m in metas if "source" in m}
     for src in indexed_sources - active_sources:
         delete_file_chunks(src)
         logger.info("清理孤儿块: %s", src)
 
-    final_metas = collection.get(include=["metadatas"])["metadatas"]
+    final_metas = get_all_batch(collection, include=["metadatas"])["metadatas"]
     file_count = len({m["source"] for m in final_metas})
     print(f"\n✅ 知识库重建完成: 共 {len(final_metas)} 块 / {file_count} 个文件（更新 {updated}，跳过 {skipped}）")
 
