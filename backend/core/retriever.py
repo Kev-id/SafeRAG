@@ -157,8 +157,14 @@ class Retriever:
         """
         self._ensure_loaded()
 
-    def retrieve(self, query: str, top_k: int = 5) -> list[dict]:
-        """混合检索，返回 top_k 条，每条含 id/text/meta/score。"""
+    def retrieve(self, query: str, top_k: int = 5, location: str | None = None) -> list[dict]:
+        """混合检索，返回 top_k 条，每条含 id/text/meta/score。
+
+        location 可选：事故发生地（如"上海"/"惠州"）用于**地域过滤**——
+        只保留「国家法律」和「source 文件名含该地名的地方法规」，
+        剔除其它省/市的地方性法规（避免"上海事故查到湖北条例"）。
+        location 为空或过滤后无结果 → 回退原 top_k（不丢命中间）。
+        """
         self._ensure_loaded()
 
         bm25_ids = self._bm25_ids(query, top_n=top_k * 2)
@@ -166,15 +172,27 @@ class Retriever:
         merged = self._rrf([bm25_ids, vec_ids], top_k=top_k)
 
         id2idx = {doc_id: i for i, doc_id in enumerate(self._ids)}
-        results = []
-        for doc_id, score in merged:
+
+        def hit(doc_id, score):
             idx = id2idx[doc_id]
-            results.append({
+            return {
                 "id": doc_id,
                 "text": self._docs[idx],
                 "meta": self._metas[idx],
                 "score": round(score, 5),
-            })
+            }
+
+        results = [hit(did, sc) for did, sc in merged]
+
+        if location:
+            def keep(h):
+                ft = h["meta"].get("file_type", "") or ""
+                src = h["meta"].get("source", "") or ""
+                # 国家法律全国适用；地方法规仅当文件名含事发地关键词才保留
+                return ft == "国家法律" or location in src
+            filtered = [h for h in results if keep(h)]
+            if filtered:
+                return filtered
         return results
 
 

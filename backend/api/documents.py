@@ -27,6 +27,7 @@ class ProcessRequest(BaseModel):
     original_text: str = Field(..., min_length=1, max_length=4000)
     requirements: str = Field(..., min_length=1, max_length=1000)
     output_filename: str = Field(..., min_length=1, max_length=100)
+    location: str = ""   # 事故发生地（如"上海"/"广东惠州"）；留空=不做地域过滤
 
 class ProcessResponse(BaseModel):
     id: str
@@ -131,6 +132,7 @@ async def process(req: ProcessRequest):
             original_text=req.original_text,
             requirements=req.requirements,
             output_filename=req.output_filename,
+            location=req.location,
         )
     except KeyError:
         raise HTTPException(status_code=422, detail=f"无效的任务类型: {req.task_type}")
