@@ -25,6 +25,7 @@ class KbFileItem(BaseModel):
     filename: str
     md5: str | None = None
     file_type: str | None = None
+    region: str | None = None
     size: int | None = None
     chunk_count: int = 0
     status: str = "building"
@@ -46,19 +47,20 @@ class KbStatsResponse(BaseModel):
 async def upload_file(
     file: UploadFile = File(...),
     file_type: str = Form(...),
+    region: Optional[str] = Form(None),
     ):
     """上传 txt 文件，登记到 SQLite 并写入 ChromaDB 索引。"""
     content = await file.read()
     try:
-        return await knowledge_service.upload_kb_file(file.filename or "", content, file_type=file_type)
+        return await knowledge_service.upload_kb_file(file.filename or "", content, file_type=file_type, region=region)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
 
 @router.get("/files", response_model=list[KbFileItem])
-async def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None):
+async def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None):
     """列出知识库文件（读登记册，权威源）。"""
-    items = await knowledge_service.list_kb_files(file_type=file_type, status=status, keyword=keyword)
+    items = await knowledge_service.list_kb_files(file_type=file_type, status=status, keyword=keyword, region=region)
     return [KbFileItem(**item) for item in items]
 
 

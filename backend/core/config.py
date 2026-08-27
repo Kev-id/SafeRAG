@@ -19,7 +19,7 @@ QWEN_READ_TIMEOUT = int(os.getenv("QWEN_READ_TIMEOUT", "600"))
 QWEN_MAX_TOKENS = int(os.getenv("QWEN_MAX_TOKENS", "4096"))
 
 # ---- Embedding 模型（RAG 检索用）----
-EMBEDDING_MODEL_PATH = os.getenv("EMBEDDING_MODEL_PATH", "/data2/models/bge-small-zh-v1.5")
+EMBEDDING_MODEL_PATH = os.getenv("EMBEDDING_MODEL_PATH", r"D:\Users\Administrator\Desktop\models\bge-small-zh-onnx")
 
 # ---- 数据存储 ----
 DATA_DIR = os.getenv("DATA_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data"))

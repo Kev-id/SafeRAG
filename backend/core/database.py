@@ -46,13 +46,14 @@ def init_db() -> None:
         """)
         # location 列（事发地，用于检索地域过滤）；幂等迁移，首次不存在才加
         doc_cols = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
-        if "location" not in doc_cols:
-            conn.execute("ALTER TABLE documents ADD COLUMN location TEXT")
+        # if "location" not in doc_cols:
+        #     conn.execute("ALTER TABLE documents ADD COLUMN location TEXT")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS kb_files (
                 filename     TEXT PRIMARY KEY,      -- 源文件名，就是知识库文档的 key
                 md5          TEXT,                  -- 内容指纹（build 判变更用）
                 file_type    TEXT,                  -- 文件种类（国家法律，行政法规，地方法规等）
+                region       TEXT,                  -- 地域（省份/直辖市/自治区），空表示全国性法规
                 size         INTEGER,               -- 字节数
                 chunk_count  INTEGER,               -- 切了多少块
                 updated_at   TEXT,                  -- 最近一次同步时间
@@ -63,6 +64,8 @@ def init_db() -> None:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(kb_files)")}
         if "file_type" not in cols:
             conn.execute("ALTER TABLE kb_files ADD COLUMN file_type TEXT")
+        if "region" not in cols:
+            conn.execute("ALTER TABLE kb_files ADD COLUMN region TEXT")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS kb_trees (
                 filename   TEXT PRIMARY KEY,
