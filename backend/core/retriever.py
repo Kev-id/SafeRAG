@@ -157,13 +157,13 @@ class Retriever:
         """
         self._ensure_loaded()
 
-    def retrieve(self, query: str, top_k: int = 5, location: str | None = None) -> list[dict]:
+    def retrieve(self, query: str, top_k: int = 5, region: str | None = None) -> list[dict]:
         """混合检索，返回 top_k 条，每条含 id/text/meta/score。
 
-        location 可选：事故发生地（如"上海"/"惠州"）用于**地域过滤**——
+        region 可选：事故发生地（如"上海"/"惠州"）用于**地域过滤**——
         只保留「国家法律」和「source 文件名含该地名的地方法规」，
         剔除其它省/市的地方性法规（避免"上海事故查到湖北条例"）。
-        location 为空或过滤后无结果 → 回退原 top_k（不丢命中间）。
+        region 为空或过滤后无结果 → 回退原 top_k（不丢命中间）。
         """
         self._ensure_loaded()
 
@@ -184,12 +184,12 @@ class Retriever:
 
         results = [hit(did, sc) for did, sc in merged]
 
-        if location:
+        if region:
             def keep(h):
                 ft = h["meta"].get("file_type", "") or ""
                 src = h["meta"].get("source", "") or ""
                 # 国家法律全国适用；地方法规仅当文件名含事发地关键词才保留
-                return ft == "国家法律" or location in src
+                return ft == "国家法律" or region in src
             filtered = [h for h in results if keep(h)]
             if filtered:
                 return filtered

@@ -41,13 +41,14 @@ def init_db() -> None:
                 original_text   TEXT NOT NULL DEFAULT '',
                 task_type       TEXT NOT NULL DEFAULT '',
                 created_at      TEXT NOT NULL,
-                completed_at    TEXT
+                completed_at    TEXT,
+                region          TEXT NOT NULL DEFAULT ''
             )
         """)
-        # location 列（事发地，用于检索地域过滤）；幂等迁移，首次不存在才加
+        # region 列（事发地，用于检索地域过滤）；幂等迁移，首次不存在才加
         doc_cols = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
-        # if "location" not in doc_cols:
-        #     conn.execute("ALTER TABLE documents ADD COLUMN location TEXT")
+        # if "region" not in doc_cols:
+        #     conn.execute("ALTER TABLE documents ADD COLUMN region TEXT")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS kb_files (
                 filename     TEXT PRIMARY KEY,      -- 源文件名，就是知识库文档的 key

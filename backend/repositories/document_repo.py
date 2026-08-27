@@ -44,7 +44,7 @@ class Document:
     task_type: str = ""
     status: DocStatus = DocStatus.PENDING
     report_content: str | None = None
-    location: str = ""          # 事发地（默认""=不地域过滤，检索时只按整库查）
+    region: str = ""          # 事发地（默认""=不地域过滤，检索时只按整库查）
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     completed_at: str | None = None
 
@@ -67,7 +67,7 @@ def _doc_dir(doc_id: str) -> str:
 
 def _row_to_doc(row) -> Document:
     """把 sqlite3.Row 转成 Document（认领/查询复用）。"""
-    has_loc = "location" in row.keys()
+    has_loc = "region" in row.keys()
     return Document(
         id=row["id"],
         output_filename=row["output_filename"],
@@ -77,7 +77,7 @@ def _row_to_doc(row) -> Document:
         status=DocStatus(row["status"]),
         created_at=row["created_at"],
         completed_at=row["completed_at"],
-        location=(row["location"] or "") if has_loc else "",
+        region=(row["region"] or "") if has_loc else "",
     )
 
 
@@ -88,7 +88,7 @@ def save(doc: Document) -> Document:
         conn.execute(
             """INSERT INTO documents
                (id, status, output_filename, requirements, original_text,
-                task_type, created_at, completed_at, location)
+                task_type, created_at, completed_at, region)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 doc.id,
@@ -99,7 +99,7 @@ def save(doc: Document) -> Document:
                 doc.task_type,
                 doc.created_at,
                 doc.completed_at,
-                doc.location,
+                doc.region,
             ),
         )
         conn.commit()
@@ -150,7 +150,7 @@ def update(doc: Document) -> Document:
         conn.execute(
             """UPDATE documents
                SET status=?, output_filename=?, requirements=?, original_text=?,
-                   task_type=?, created_at=?, completed_at=?, location=?
+                   task_type=?, created_at=?, completed_at=?, region=?
                WHERE id=?""",
             (
                 doc.status.value,
@@ -160,7 +160,7 @@ def update(doc: Document) -> Document:
                 doc.task_type,
                 doc.created_at,
                 doc.completed_at,
-                doc.location,
+                doc.region,
                 doc.id,
             ),
         )

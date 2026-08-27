@@ -44,17 +44,17 @@ def _build_messages(template: PromptTemplate, original_text: str, requirements: 
 
 
 def retrieve_with_citations(original_text: str, top_k: int = 5,
-                            location: str | None = None) -> tuple[str, list[str]]:
+                            region: str | None = None) -> tuple[str, list[str]]:
     """检索相关法规，返回 (带编号的 context 文本, 来源清单)。
 
     文档处理和聊天共用的检索入口：
     context 每条法规带 [编号]（来源：文件 第N条），供模型在回答/报告里标注引用；
     sources 是 [编号]→来源 的清单，拼到报告末尾做「参考法规来源」附录，实现可追溯。
-    location 可选：事故发生地，透传给检索器做地域过滤（只留国家法+当地条例）。
+    region 可选：事故发生地，透传给检索器做地域过滤（只留国家法+当地条例）。
     检索失败返回 ("", [])，降级为"不注入法规"的纯 LLM 生成。
     """
     try:
-        hits = get_retriever().retrieve(original_text, top_k=top_k, location=location)
+        hits = get_retriever().retrieve(original_text, top_k=top_k, region=region)
     except Exception:
         logger.exception("检索知识库失败，降级为不注入法规")
         return "", []
@@ -69,7 +69,7 @@ def retrieve_with_citations(original_text: str, top_k: int = 5,
 
 
 async def create_document(task_type, original_text, requirements, output_filename,
-                          location: str = "") -> Document:
+                          region: str = "") -> Document:
     """只建记录 + 标记 queued，不碰模型，立即返回。"""
     template = get_template(task_type)
     doc = Document(
@@ -78,7 +78,7 @@ async def create_document(task_type, original_text, requirements, output_filenam
         output_filename=output_filename,
         task_type=task_type,
         status=DocStatus.QUEUED,
-        location=location,
+        region=region,
     )
     save(doc)
     _wake.set()  # 唤醒 worker 来取（队列空了才真睡，多余 set 无害）
@@ -92,9 +92,9 @@ async def _process_document(doc: Document) -> None:
     template = get_template(doc.task_type)
     try:
         # 检索是 CPU 密集（jieba + BM25 + embedding），丢线程池，别阻塞事件循环。
-        # location 传入事故地做地域过滤（只留国家法 + 当地条例）
+        # region 传入事故地做地域过滤（只留国家法 + 当地条例）
         context, sources = await asyncio.to_thread(
-            retrieve_with_citations, doc.original_text, 5, doc.location
+            retrieve_with_citations, doc.original_text, 5, doc.region
         )
         messages = _build_messages(template, doc.original_text, doc.requirements, context)
         raw = await qwen_chat(messages)
