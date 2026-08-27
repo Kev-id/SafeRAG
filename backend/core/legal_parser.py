@@ -299,7 +299,12 @@ def iter_legal_chunks(tree_data: dict, max_chars: int = 400) -> tuple[list[str],
         if not article_text:
             return
         pieces = _split_long_text(article_text, max_chars)
-        prefix_parts = [doc["title"], chapter_no, chapter_title]
+        # region 拼进 chunk 文本前缀：让 embedding 向量 / BM25 都"认识"本文的地域属性，
+        # 否则地区只存 metadata、不进向量化，检索时无法按地域匹配
+        prefix_parts = []
+        if doc.get("region"):
+            prefix_parts.append(doc["region"])
+        prefix_parts += [doc["title"], chapter_no, chapter_title]
         if section_no:
             prefix_parts += [section_no, section_title]
         for i, piece in enumerate(pieces, 1):
