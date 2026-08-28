@@ -155,17 +155,11 @@ def _strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
-def _read_bmsmi() -> str | None:
-    """调 bm-smi 取纯文本（一次性采样，立即退出，剥 ANSI + TERM=dumb）。
-
-    - bm-smi 默认 -loop 持续采样不退出，subprocess 会卡满 timeout → 必须 -noloop
-    - 无 TTY 下 Tpu-Util 列不输出（只有 core_util 表给 %）→ 加 -core_util 拿核利用率
-    - bm-smi 非 TTY 仍画 ANSI → 设 TERM=dumb 输出纯文本，再剥一层 ANSI 双保险
-    - timeout=2 双保险：意外也快速放弃
-    """
+def _run_bmsmi(args: list[str]) -> str | None:
+    """跑一次 bm-smi（-noloop 强制退出 + TERM=dumb 关 ANSI），返回剥好的纯文本。"""
     try:
         out = subprocess.run(
-            ["bm-smi", "-noloop", "-core_util"],
+            ["bm-smi", "-noloop", *args],
             capture_output=True, text=True, timeout=2,
             env={**os.environ, "TERM": "dumb"},
         )
@@ -174,6 +168,21 @@ def _read_bmsmi() -> str | None:
         return _strip_ansi(out.stdout)
     except Exception:
         return None
+
+
+def _read_bmsmi() -> str | None:
+    """跑两次 bm-smi 合并：主表（温度/时钟/NPU 内存）+ core_util（每核利用率）。
+
+    bm-smi 加 -core_util 会改变输出结构、丢掉主表；分开跑两次各自解析最稳：
+      - ["-"]                 → 温度/时钟/NPU
+      - ["-core_util"]        → core 利用率（无 TTY 下只有它给 %）
+    用空行分隔拼回，正则各自命中不串扰。
+    """
+    main = _run_bmsmi([])
+    util = _run_bmsmi(["-core_util"])
+    if main is None and util is None:
+        return None
+    return "\n\n".join(s for s in (main, util) if s)
 
 
 def _tpu_info() -> dict | None:
