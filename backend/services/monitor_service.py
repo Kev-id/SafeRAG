@@ -159,7 +159,7 @@ def _run_bmsmi(args: list[str]) -> str | None:
     """跑一次 bm-smi（-noloop 强制退出 + TERM=dumb 关 ANSI），返回剥好的纯文本。"""
     try:
         out = subprocess.run(
-            ["bm-smi", "-noloop", *args],
+            ["opt/sophon/libsophon-current/bin/bm-smi", "-noloop", *args],
             capture_output=True, text=True, timeout=2,
             env={**os.environ, "TERM": "dumb"},
         )
