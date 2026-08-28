@@ -156,15 +156,18 @@ def _strip_ansi(text: str) -> str:
 
 
 def _read_bmsmi() -> str | None:
-    """调 bm-smi 取纯文本（一次性采样，立即退出，剥离 ANSI 转义）。
+    """调 bm-smi 取纯文本（一次性采样，立即退出，剥 ANSI + TERM=dumb）。
 
-    bm-smi 默认 -loop 会持续采样不退出，后端 subprocess 会卡满 timeout；
-    必须加 -noloop 让它跑一次就返回。timeout=2 双保险：即使意外也快速放弃。
-    返回前剥离 ANSI 转义，否则表格被定位序列打散、数值无法解析。
+    - bm-smi 默认 -loop 持续采样不退出，subprocess 会卡满 timeout → 必须 -noloop
+    - bm-smi 检测输出非 TTY 时仍画 ANSI（\x1b[... 定位/切屏）→ 设 TERM=dumb
+      让它输出纯文本（标准做法），并再剥一层 ANSI 双保险
+    - timeout=2 双保险：意外也快速放弃
     """
     try:
         out = subprocess.run(
-            ["bm-smi", "-noloop"], capture_output=True, text=True, timeout=2
+            ["bm-smi", "-noloop"],
+            capture_output=True, text=True, timeout=2,
+            env={**os.environ, "TERM": "dumb"},
         )
         if out.returncode != 0:
             return None
@@ -204,10 +207,11 @@ def _tpu_info() -> dict | None:
     m = re.search(r"Active\s+(\d+)M", text)
     if m:
         info["clock_mhz_cur"] = int(m.group(1))
-    # NPU 内存：所有 "xMB/ yMB" 对里取 total 最大的一对。
-    # 注：bm-smi 同时有 Ion-Usage 和 Npu-Usage 两套内存读数（total 不同），
-    # 盒子实际字段以 log 校准；先用 total 最大保证取到内存总量读数。
-    pairs = [(int(a), int(b)) for a, b in re.findall(r"(\d+)MB/\s*(\d+)MB", text)]
+    # NPU 内存：所有 "xMB/ y" 对里取总量最大的一对。
+    # 注：bm-smi 同时有 Ion-Usage 和 Npu-Usage 两套（total 40 / 8192 / 8232 各异），
+    # 整段找 "xMB/ y"（y 可不带 MB 后缀，因 ANSI 剥离后列粘连丢后缀），
+    # 取 total 最大的一对作为内存总量。
+    pairs = [(int(a), int(b)) for a, b in re.findall(r"(\d+)MB/\s*(\d+)", text)]
     if pairs:
         used, total = max(pairs, key=lambda p: p[1])
         info["npu_memory_used_mb"] = used
