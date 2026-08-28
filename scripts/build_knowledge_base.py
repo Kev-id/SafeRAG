@@ -69,6 +69,7 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
         tree, md5 = parse_to_tree(
             content, filename=filename, file_type=kf.get("file_type") or "",
             region=kf.get("region") or "",
+            city=kf.get("city") or "",
         )
         kb_tree_repo.save(filename, tree, md5)
         chunks, metadatas = iter_legal_chunks(tree)
