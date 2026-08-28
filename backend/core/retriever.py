@@ -103,23 +103,39 @@ class Retriever:
     # ------------------------------------------------------------------
     # 两个子检索器
     # ------------------------------------------------------------------
-    def _candidate_ids(self, region: str) -> set[str] | None:
-        """按事发地 region 缩候选集：国家法律 + region 匹配的地方法规。
+    def _candidate_ids(self, provinces: list[str] | None = None,
+                       cities: list[str] | None = None) -> set[str] | None:
+        """按省 + 市两级缩候选集（国家法律始终保留）。
 
-        返回候选 id 集合（可能只含国家法律，若库里无该地区条例）；
-        region 为空 → 返回 None（全量检索）。
-        注意：region 非空时**不回退全量**——即使库里没有该地区的地方法规，
-        也只保留国家法律，绝不把其它省/市的条例放进候选（宁少勿错）。
+        语义（用户拍板）：
+          - provinces/cities 都空 → None（全量检索）
+          - 只勾省（如["湖北"]）→ 国家法律 + 该省**省级条例**（city 空）
+          - 省 + 市同选（["湖北"],["武汉"]）→ 国家法律 + 湖北省级 + 武汉市
+          - 只勾市（省空）：城市级 if 市级条例，返回国家法律 + 这些市条例
+        市级条例（city 非空）匹配要求：province 在 provinces（provinces 为空则不限）且 city ∈ cities。
         """
-        if not region:
+        if not provinces and not cities:
             return None
+        pset = set(provinces or [])
+        cset = set(cities or [])
         cand: set[str] = set()
         for i, m in enumerate(self._metas):
             ft = m.get("file_type", "") or ""
             if ft == "国家法律":
                 cand.add(self._ids[i])
-            elif (m.get("region") or "") == region:
+                continue
+            prov = m.get("region") or ""
+            city = m.get("city") or ""
+            # 省级条例（city 空）：仅当勾了省且该省在选中
+            if not city:
+                if pset and prov in pset:
+                    cand.add(self._ids[i])
+                continue
+            # 市级条例：province 匹配（prov 空则不限）+ city 在选中
+            if cset and city in cset and (not pset or prov in pset):
                 cand.add(self._ids[i])
+        # 有选中地区但候选为空（库对该地区无条例）→ 给个空 set（retrieve 会空结果，
+        # 宁可空也不拉进其它省）
         return cand
 
     def _bm25_ids(self, query: str, top_n: int, candidate_ids: set[str] | None = None) -> list[str]:
@@ -192,17 +208,20 @@ class Retriever:
         """
         self._ensure_loaded()
 
-    def retrieve(self, query: str, top_k: int = 5, region: str | None = None) -> list[dict]:
+    def retrieve(self, query: str, top_k: int = 5,
+                 provinces: list[str] | None = None,
+                 cities: list[str] | None = None) -> list[dict]:
         """混合检索，返回 top_k 条，每条含 id/text/meta/score。
 
-        region 可选：事故发生地（如"上海"/"惠州"）。**打分前**先按 region 算出
-        候选集（国家法律 + region 匹配的地方法规），BM25 和向量检索都只在
-        候选集内打分——从源头避免"上海事故查到湖北条例"。region 为空或库里
-        无该地区条例（存量数据可能还没 region 字段）→ 候选集为 None，回退全量。
+        provinces/cities 可选：省 + 市两级地域过滤。**打分前**先按它们算出
+        候选集（国家法律 + 匹配省份省级条例 + 匹配市级条例），BM25 和向量
+        检索都只在候选集内打分——从源头避免"上海事故查到湖北条例"。
+        两维都空 → 全量检索。见 _candidate_ids 的语义注释。
         """
         self._ensure_loaded()
 
-        candidate_ids = self._candidate_ids(region) if region else None
+        candidate_ids = self._candidate_ids(provinces, cities) \
+            if (provinces or cities) else None
         bm25_ids = self._bm25_ids(query, top_n=top_k * 2, candidate_ids=candidate_ids)
         vec_ids = self._vector_ids(query, top_n=top_k * 2, candidate_ids=candidate_ids)
         merged = self._rrf([bm25_ids, vec_ids], top_k=top_k)
@@ -220,7 +239,7 @@ class Retriever:
 
         results = [hit(did, sc) for did, sc in merged]
 
-        # 双保险：候选集内约束后，仍按 region 精确过滤一次（避免非 region 条例混入）
+        # 双保险：候选集内约束后，仍按候选集精确过滤一次（避免非匹配省/市混入）
         if candidate_ids is not None:
             results = [h for h in results if h["id"] in candidate_ids]
         return results

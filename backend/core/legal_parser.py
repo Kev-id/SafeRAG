@@ -112,11 +112,14 @@ def _extract_pdf(content: bytes) -> str:
     return text
 
 
-def parse_to_tree(content: bytes, filename: str, file_type: str, region: str) -> tuple[dict, str]:
+def parse_to_tree(content: bytes, filename: str, file_type: str, region: str,
+                  city: str = "") -> tuple[dict, str]:
     """把任意文件内容解析成文档树（解析与入库的唯一合同入口）。
 
     按 filename 后缀取文本提取器（_extract_text），再走向法规层级树 / 非法规最简树。
     返回 (tree, md5)：md5 基于提取出的文本算（语义沿用"解码后文本"），存量 kb_files 无需迁移。
+
+    region = 省/直辖市/自治区（空=全国性法规）；city = 地级市（空=省级条例活在 city 粒度下为空）。
 
     法规文本（章/节/条头足够）→ 层级文档树；
     其它文本 → 最简文档树（单根 article 节点装整段正文），与法规走同一条入库路径，
@@ -127,16 +130,19 @@ def parse_to_tree(content: bytes, filename: str, file_type: str, region: str) ->
         raise ValueError("空文本")
     md5 = file_md5(text)
     if _is_legal_text(text):
-        return _parse_legal(text, source=filename, file_type=file_type, region=region), md5
+        return _parse_legal(text, source=filename, file_type=file_type,
+                            region=region, city=city), md5
     tree = {
-        "doc": {"title": "", "file_type": file_type, "source": filename, "meta": None, "region": region},
+        "doc": {"title": "", "file_type": file_type, "source": filename,
+                "meta": None, "region": region, "city": city},
         "toc": [],
         "tree": [{"level": "article", "no": "", "title": "", "text": text.strip()}],
     }
     return tree, md5
 
 
-def _parse_legal(text: str, source: str, file_type: str, region: str) -> dict:
+def _parse_legal(text: str, source: str, file_type: str, region: str,
+                 city: str = "") -> dict:
     """把法规 txt 解析成文档树。"""
     lines = _normalize_text(text) #把文本按行分割，去掉空行和首尾空白
     if not lines:
@@ -274,6 +280,7 @@ def _parse_legal(text: str, source: str, file_type: str, region: str) -> dict:
             "title": title,
             "file_type": file_type,
             "region": region,
+            "city": city,
             "source": source,
             "meta": meta,
         },
@@ -299,11 +306,13 @@ def iter_legal_chunks(tree_data: dict, max_chars: int = 400) -> tuple[list[str],
         if not article_text:
             return
         pieces = _split_long_text(article_text, max_chars)
-        # region 拼进 chunk 文本前缀：让 embedding 向量 / BM25 都"认识"本文的地域属性，
-        # 否则地区只存 metadata、不进向量化，检索时无法按地域匹配
+        # region + city 拼进 chunk 文本前缀：让 embedding 向量 / BM25 都"认识"本文的地域属性，
+        # 否则地区只存 metadata、不进向量化，检索时无法按地域匹配。
         prefix_parts = []
         if doc.get("region"):
             prefix_parts.append(doc["region"])
+        if doc.get("city"):
+            prefix_parts.append(doc["city"])
         prefix_parts += [doc["title"], chapter_no, chapter_title]
         if section_no:
             prefix_parts += [section_no, section_title]
@@ -315,6 +324,7 @@ def iter_legal_chunks(tree_data: dict, max_chars: int = 400) -> tuple[list[str],
                 "doc_title": doc["title"],
                 "file_type": doc["file_type"],
                 "region": doc["region"],
+                "city": doc["city"],
                 "chapter_no": chapter_no,
                 "chapter_title": chapter_title,
                 "article_no": article_no,
