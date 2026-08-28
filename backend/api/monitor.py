@@ -32,7 +32,6 @@ class TPUProcessInfo(BaseModel):
 
 
 class TPUInfo(BaseModel):
-    tpuid: int | None = None
     temperature_c: int | None = None
     tpu_util_percent: int | None = None
     clock_mhz_min: int | None = None
@@ -40,7 +39,6 @@ class TPUInfo(BaseModel):
     clock_mhz_cur: int | None = None
     npu_memory_used_mb: int | None = None
     npu_memory_total_mb: int | None = None
-    processes: list[TPUProcessInfo] | None = None
 
 
 class MonitorResponse(BaseModel):
