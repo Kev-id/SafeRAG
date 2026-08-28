@@ -159,13 +159,13 @@ def _read_bmsmi() -> str | None:
     """调 bm-smi 取纯文本（一次性采样，立即退出，剥 ANSI + TERM=dumb）。
 
     - bm-smi 默认 -loop 持续采样不退出，subprocess 会卡满 timeout → 必须 -noloop
-    - bm-smi 检测输出非 TTY 时仍画 ANSI（\x1b[... 定位/切屏）→ 设 TERM=dumb
-      让它输出纯文本（标准做法），并再剥一层 ANSI 双保险
+    - 无 TTY 下 Tpu-Util 列不输出（只有 core_util 表给 %）→ 加 -core_util 拿核利用率
+    - bm-smi 非 TTY 仍画 ANSI → 设 TERM=dumb 输出纯文本，再剥一层 ANSI 双保险
     - timeout=2 双保险：意外也快速放弃
     """
     try:
         out = subprocess.run(
-            ["bm-smi", "-noloop"],
+            ["bm-smi", "-noloop", "-core_util"],
             capture_output=True, text=True, timeout=2,
             env={**os.environ, "TERM": "dumb"},
         )
@@ -194,10 +194,11 @@ def _tpu_info() -> dict | None:
     m = re.search(r"(\d+)C", text)
     if m:
         info["temperature_c"] = int(m.group(1))
-    # 利用率：NN%（Tpu-Util）
-    m = re.search(r"(\d+)%", text)
-    if m:
-        info["tpu_util_percent"] = int(m.group(1))
+    # 利用率：core_id util 表里取所有核 util，聚合（如均值）作为 tpu_util_percent。
+    # bm-smi -core_util 输出形如 "0 0% 1 0%"（每核一行）。若一个 % 都没有则 None。
+    utils = re.findall(r"(\d+)%", text)
+    if utils:
+        info["tpu_util_percent"] = round(sum(int(u) for u in utils) / len(utils), 1)
     # 时钟 min/max：第一个 "NNM NNM"
     m = re.search(r"(\d+)M\s+(\d+)M", text)
     if m:
