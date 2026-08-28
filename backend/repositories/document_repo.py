@@ -47,6 +47,7 @@ class Document:
     region: str = ""          # 事发地（默认""=不地域过滤，检索时只按整库查）
     provinces: str = ""       # 多选省，逗号分隔（如"湖北,广东"）；空=不限省
     cities: str = ""          # 多选市，逗号分隔（如"武汉,深圳"）；空=不限市
+    file_types: str = ""      # 多选文件类型，逗号分隔（如"国家法律,地方法规"）；空=不限
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     completed_at: str | None = None
 
@@ -82,6 +83,7 @@ def _row_to_doc(row) -> Document:
         region=(row["region"] or "") if "region" in keys else "",
         provinces=(row["provinces"] or "") if "provinces" in keys else "",
         cities=(row["cities"] or "") if "cities" in keys else "",
+        file_types=(row["file_types"] or "") if "file_types" in keys else "",
     )
 
 
@@ -92,8 +94,8 @@ def save(doc: Document) -> Document:
         conn.execute(
             """INSERT INTO documents
                (id, status, output_filename, requirements, original_text,
-                task_type, created_at, completed_at, region, provinces, cities)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                task_type, created_at, completed_at, region, provinces, cities, file_types)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 doc.id,
                 doc.status.value,
@@ -106,6 +108,7 @@ def save(doc: Document) -> Document:
                 doc.region,
                 doc.provinces,
                 doc.cities,
+                doc.file_types,
             ),
         )
         conn.commit()
@@ -157,7 +160,7 @@ def update(doc: Document) -> Document:
             """UPDATE documents
                SET status=?, output_filename=?, requirements=?, original_text=?,
                    task_type=?, created_at=?, completed_at=?, region=?,
-                   provinces=?, cities=?
+                   provinces=?, cities=?, file_types=?
                WHERE id=?""",
             (
                 doc.status.value,
@@ -170,6 +173,7 @@ def update(doc: Document) -> Document:
                 doc.region,
                 doc.provinces,
                 doc.cities,
+                doc.file_types,
                 doc.id,
             ),
         )

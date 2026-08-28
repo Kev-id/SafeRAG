@@ -30,6 +30,7 @@ class ProcessRequest(BaseModel):
     region: str = ""          # 废弃兼容：省（旧），新用 provinces
     provinces: list[str] = []  # 可选：多选省，如 ["湖北","广东"]
     cities: list[str] = []     # 可选：多选市，如 ["武汉","深圳"]
+    file_types: list[str] = [] # 可选：多选文件类型，如 ["国家法律","地方法规"]
 
 class ProcessResponse(BaseModel):
     id: str
@@ -137,6 +138,7 @@ async def process(req: ProcessRequest):
             region=req.region,
             provinces=",".join(req.provinces),
             cities=",".join(req.cities),
+            file_types=",".join(req.file_types),
         )
     except KeyError:
         raise HTTPException(status_code=422, detail=f"无效的任务类型: {req.task_type}")
