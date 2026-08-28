@@ -36,7 +36,7 @@ def _content_to_text(content) -> str:
 
 
 def build_chat_messages(
-    messages: list[dict], enable_rag: bool
+    messages: list[dict], enable_rag: bool, region: str | None = None
 ) -> tuple[list[dict], list[str]]:
     """构造发给 Qwen 的 messages。
 
@@ -56,7 +56,7 @@ def build_chat_messages(
     sources: list[str] = []
 
     if enable_rag and question.strip():
-        context, sources = retrieve_with_citations(question)
+        context, sources = retrieve_with_citations(question, region=region)
         if context:
             rag_content = context + _RAG_SYSTEM_PREFIX
             # Qwen 聊天模板要求 system 只能有一条且在开头（否则模板报
