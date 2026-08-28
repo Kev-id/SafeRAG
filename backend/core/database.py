@@ -42,13 +42,17 @@ def init_db() -> None:
                 task_type       TEXT NOT NULL DEFAULT '',
                 created_at      TEXT NOT NULL,
                 completed_at    TEXT,
-                region          TEXT NOT NULL DEFAULT ''
+                region          TEXT NOT NULL DEFAULT '',
+                provinces       TEXT NOT NULL DEFAULT '',
+                cities          TEXT NOT NULL DEFAULT ''
             )
         """)
         # region 列（事发地，用于检索地域过滤）；幂等迁移，首次不存在才加
         doc_cols = {row[1] for row in conn.execute("PRAGMA table_info(documents)")}
-        # if "region" not in doc_cols:
-        #     conn.execute("ALTER TABLE documents ADD COLUMN region TEXT")
+        if "provinces" not in doc_cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN provinces TEXT NOT NULL DEFAULT ''")
+        if "cities" not in doc_cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN cities TEXT NOT NULL DEFAULT ''")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS kb_files (
                 filename     TEXT PRIMARY KEY,      -- 源文件名，就是知识库文档的 key
@@ -67,6 +71,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE kb_files ADD COLUMN file_type TEXT")
         if "region" not in cols:
             conn.execute("ALTER TABLE kb_files ADD COLUMN region TEXT")
+        if "city" not in cols:
+            conn.execute("ALTER TABLE kb_files ADD COLUMN city TEXT")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS kb_trees (
                 filename   TEXT PRIMARY KEY,
