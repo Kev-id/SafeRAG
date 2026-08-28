@@ -38,7 +38,9 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]
     stream: bool = True          # 聊天走流式
     enable_rag: bool = False     # 默认关，前端明确开才检索
-    region: str | None = None          # 可选：事故发生地，透传给检索器做地域过滤（只留国家法+当地条例）
+    region: str | None = None    # 废弃兼容：省（旧），新用 provinces
+    provinces: list[str] = []    # 可选：多选省，透传给检索器做地域过滤
+    cities: list[str] = []       # 可选：多选市，透传给检索器做地域过滤
 
 
 @router.post("/chat/completions")
@@ -57,7 +59,8 @@ async def chat_completions(req: ChatRequest):
         # build（检索+注入）在流开始前完成：抛错能正常转 HTTP 错误，
         # 不会漏成"200 + 残缺 SSE body"
         constructed, _sources = await asyncio.to_thread(
-            chat_service.build_chat_messages, messages, req.enable_rag, req.region
+            chat_service.build_chat_messages,
+            messages, req.enable_rag, req.provinces or None, req.cities or None
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
