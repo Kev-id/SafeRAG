@@ -36,12 +36,12 @@ def _read_proc_stat_times() -> tuple[int, int] | None:
 
 
 def _cpu_usage_percent() -> float | None:
-    """两次采样间隔 200ms 的 CPU 使用率。"""
+    """两次采样间隔 100ms 的 CPU 使用率。"""
     t1, i1 = _read_proc_stat_times()
     if t1 is None:
         return None
     import time
-    time.sleep(0.2)
+    time.sleep(0.1)
     t2, i2 = _read_proc_stat_times()
     if t2 is None:
         return None
@@ -95,7 +95,11 @@ def _proc_rss_mb(pid: int) -> int | None:
 
 
 def _find_server_pids() -> list[int]:
-    """扫 /proc/*/cmdline 找命令行含 server.py 的进程（Qwen 推理引擎）。"""
+    """扫 /proc/*/cmdline 精确找 Qwen 推理引擎进程。
+
+    匹配 Qwen3_5/python_demo/server.py——避免把 led_server.py、
+    python -m http.server 等同样含 "server.py" 的进程误当引擎。
+    """
     pids = []
     try:
         for name in os.listdir("/proc"):
@@ -106,7 +110,7 @@ def _find_server_pids() -> list[int]:
                     cmd = f.read().decode(errors="ignore")
             except Exception:
                 continue
-            if "server.py" in cmd:
+            if "Qwen3_5/python_demo/server.py" in cmd:
                 pids.append(int(name))
     except Exception:
         pass
@@ -135,10 +139,14 @@ def _processes() -> list[dict]:
 # TPU（bm-smi）
 # ---------------------------------------------------------------------------
 def _read_bmsmi() -> str | None:
-    """调 bm-smi 取原始文本。"""
+    """调 bm-smi 取原始文本（一次性采样，立即退出）。
+
+    bm-smi 默认 -loop 会持续采样不退出，后端 subprocess 会卡满 timeout；
+    必须加 -noloop 让它跑一次就返回。timeout=2 双保险：即使意外也快速放弃。
+    """
     try:
         out = subprocess.run(
-            ["bm-smi"], capture_output=True, text=True, timeout=10
+            ["bm-smi", "-noloop"], capture_output=True, text=True, timeout=2
         )
         return out.stdout if out.returncode == 0 else None
     except Exception:
