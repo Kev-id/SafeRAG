@@ -138,59 +138,80 @@ def _processes() -> list[dict]:
 # ---------------------------------------------------------------------------
 # TPU（bm-smi）
 # ---------------------------------------------------------------------------
+_ANSI_RE = re.compile(
+    r"\x1b\[[0-9;?]*[a-zA-Z]"   # CSI 序列（\x1b[1;1H、\x1b[37m 等）
+    r"|\x1b[78]"                 # 保存/恢复光标（\x1b7 \x1b8）
+    r"|\x1b[=<>(A-Z]"            # 其它 ESC 指令（\x1b= \x1b> \x1b( 等）
+)
+
+
+def _strip_ansi(text: str) -> str:
+    """剥掉 bm-smi 的 ANSI 终端转义序列，得到纯文本表格。
+
+    bm-smi 在非交互终端（subprocess）下会输出大量光标定位/切屏转义
+    （\x1b[1;1H、\x1b[?47h、\x1b7\x1b8 等），打散表格顺序。剥掉后
+    只剩可见字符，数值才能被正则匹配。
+    """
+    return _ANSI_RE.sub("", text)
+
+
 def _read_bmsmi() -> str | None:
-    """调 bm-smi 取原始文本（一次性采样，立即退出）。
+    """调 bm-smi 取纯文本（一次性采样，立即退出，剥离 ANSI 转义）。
 
     bm-smi 默认 -loop 会持续采样不退出，后端 subprocess 会卡满 timeout；
     必须加 -noloop 让它跑一次就返回。timeout=2 双保险：即使意外也快速放弃。
+    返回前剥离 ANSI 转义，否则表格被定位序列打散、数值无法解析。
     """
     try:
         out = subprocess.run(
             ["bm-smi", "-noloop"], capture_output=True, text=True, timeout=2
         )
-        return out.stdout if out.returncode == 0 else None
+        if out.returncode != 0:
+            return None
+        return _strip_ansi(out.stdout)
     except Exception:
         return None
 
 
 def _tpu_info() -> dict | None:
-    """解析 bm-smi 文本 → TPU 温度/使用率/NPU 内存/时钟/进程。"""
+    """解析 bm-smi 文本 → TPU 温度/使用率/NPU 内存/时钟。
+
+    用容错式匹配（不依赖表格列对齐）：bm-smi 的 \r 样式表格在终端会被
+    wrap 成一整行，规范化列位置的正则会错位。改为按关键词取：
+      温度 = 第一个 "NN C"（chipT）；利用率 = "NN%"（Tpu-Util）；
+      时钟对 = "NNM NNM"（min/max）；当前时钟 = "Active NNM"；
+      NPU 内存 = "xMB/ yMB" 里总量最大那对（取 Npu-Usage 的 8192，
+      而非 Ion-Usage 的 8232）。
+    """
     text = _read_bmsmi()
     if not text:
         return None
     info: dict = {}
-    # ---- 温度 / Tpu-Util：取卡片段表格行 ----
-    # 样例: "| 0 BM1688-SOC   SOC  N/A | 0  N/A  39C  N/A  N/A  N/A  N/A  0% |"
-    m = re.search(r"\|\s+(\d+)\s+\S+\s+\S+\s+\S+\s+\|\s+0\s+\S+\s+(\d+)C\s+\S+\s+\S+\s+\S+\s+\S+\s+(\d+)%\s+\|", text)
+    # 温度：第一个 NN C（chipT）
+    m = re.search(r"(\d+)C", text)
     if m:
-        info["tpuid"] = int(m.group(1))
-        info["temperature_c"] = int(m.group(2))
-        info["tpu_util_percent"] = int(m.group(3))
-    # ---- 时钟 ----
-    # 样例: "|  N/A  N/A  N/A  25M  1000M  N/A|  N/A  Active  900M  N/A  0MB/ 8232MB |"
-    m = re.search(r"\|\s+N/A\s+N/A\s+N/A\s+(\d+)M\s+(\d+)M\s+N/A\|", text)
+        info["temperature_c"] = int(m.group(1))
+    # 利用率：NN%（Tpu-Util）
+    m = re.search(r"(\d+)%", text)
+    if m:
+        info["tpu_util_percent"] = int(m.group(1))
+    # 时钟 min/max：第一个 "NNM NNM"
+    m = re.search(r"(\d+)M\s+(\d+)M", text)
     if m:
         info["clock_mhz_min"] = int(m.group(1))
         info["clock_mhz_max"] = int(m.group(2))
-    m = re.search(r"\|\s+N/A\s+Active\s+(\d+)M\s+", text)
+    # 当前时钟：Active NNM
+    m = re.search(r"Active\s+(\d+)M", text)
     if m:
         info["clock_mhz_cur"] = int(m.group(1))
-    # ---- NPU 内存：取最后一个 "0MB/ NNNNMB"（Npu-Usage 总量，倒序取最后一个匹配）----
-    matches = list(re.finditer(r"(\d+)MB/\s*(\d+)MB", text))
-    if matches:
-        m = matches[-1]  # 最后一个 = Npu-Usage 行（总 Npu 内存）
-        info["npu_memory_used_mb"] = int(m.group(1))
-        info["npu_memory_total_mb"] = int(m.group(2))
-    # ---- TPU 进程（Processes 段）：PID  name  Memory ────
-    procs = []
-    for m in re.finditer(r"\|\s+\d+\s+(\d+)\s+(.+?)\s+\|\s+(\d+)MB\s+\|", text):
-        procs.append({
-            "pid": int(m.group(1)),
-            "name": m.group(2).strip(),
-            "memory_mb": int(m.group(3)),
-        })
-    if procs:
-        info["processes"] = procs
+    # NPU 内存：所有 "xMB/ yMB" 对里取 total 最大的一对。
+    # 注：bm-smi 同时有 Ion-Usage 和 Npu-Usage 两套内存读数（total 不同），
+    # 盒子实际字段以 log 校准；先用 total 最大保证取到内存总量读数。
+    pairs = [(int(a), int(b)) for a, b in re.findall(r"(\d+)MB/\s*(\d+)MB", text)]
+    if pairs:
+        used, total = max(pairs, key=lambda p: p[1])
+        info["npu_memory_used_mb"] = used
+        info["npu_memory_total_mb"] = total
     return info or None
 
 
