@@ -31,8 +31,8 @@ ALLOWED_EXTS = {".txt", ".docx", ".pdf"}
 
 _wake_kb = asyncio.Event()
 
-async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
-    """保存上传文件，登记到 SQLite，解析成文档树，再从树切块写入索引。
+async def upload_kb_file(filename: str, content: bytes, file_type: str, region: str | None = None) -> dict:
+    """保存上传文件，登记到 SQLite。
 
     文件格式由 parse_to_tree 按 filename 后缀分派，本函数不关心格式。
     """
@@ -50,7 +50,7 @@ async def upload_kb_file(filename: str, content: bytes, file_type: str) -> dict:
 
     now = datetime.now(timezone.utc).isoformat()
     kb_file_repo.upsert({
-        "filename": safe_name, "file_type": file_type, "size": len(content),
+        "filename": safe_name, "file_type": file_type, "region": region, "size": len(content),
         "chunk_count": 0, "status": "queued", "message": None, "updated_at": now,
     })
     _wake_kb.set()
@@ -60,12 +60,13 @@ async def _process_kb_file(kf: dict) -> dict:
     """解析成文档树，再从树切块写入索引。"""
     safe_name = kf["filename"]
     file_type = kf["file_type"]
+    region = kf["region"]
     with open(os.path.join(KB_SOURCE_DIR, safe_name), "rb") as f:
         content = f.read()
 
     try:
         # 解析段：bytes → 文档树（合同），CPU 密集丢线程池，落盘到 kb_trees
-        tree, md5 = await asyncio.to_thread(parse_to_tree, content, safe_name, file_type)
+        tree, md5 = await asyncio.to_thread(parse_to_tree, content, safe_name, file_type, region)
         await asyncio.to_thread(kb_tree_repo.save, safe_name, tree, md5)
         # 入库段：只认树，从树出块 → 写索引，绝不重新解析
         chunks, metadatas = iter_legal_chunks(tree)
@@ -82,7 +83,7 @@ async def _process_kb_file(kf: dict) -> dict:
         raise
     now = datetime.now(timezone.utc).isoformat()
     kb_file_repo.upsert({
-        "filename": safe_name, "md5": md5, "file_type": file_type, "size": len(content),
+        "filename": safe_name, "md5": md5, "file_type": file_type, "region": region, "size": len(content),
         "chunk_count": chunk_count, "status": "ready", "message": None, "updated_at": now,
     })
     reset_retriever()  # 检索器缓存失效，下次检索才拿得到新文件
@@ -108,9 +109,9 @@ async def delete_kb_file(filename: str) -> dict:
     return {"message": f"已删除并重建知识库: {safe_name}"}
 
 
-async def list_kb_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None) -> list[dict]:
+async def list_kb_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None) -> list[dict]:
     """列出知识库文件（直接读登记册，不碰 ChromaDB）。"""
-    return kb_file_repo.list_files(file_type=file_type, status=status, keyword=keyword)
+    return kb_file_repo.list_files(file_type=file_type, status=status, keyword=keyword, region=region)
 
 
 async def get_kb_file(filename: str) -> dict:

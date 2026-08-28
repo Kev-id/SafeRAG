@@ -66,7 +66,10 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
         # 重建脚本以源文件为准：bytes → 树 → 存合同 → 从树出块入库。
         with open(path, "rb") as f:
             content = f.read()
-        tree, md5 = parse_to_tree(content, filename=filename, file_type=kf.get("file_type") or "")
+        tree, md5 = parse_to_tree(
+            content, filename=filename, file_type=kf.get("file_type") or "",
+            region=kf.get("region") or "",
+        )
         kb_tree_repo.save(filename, tree, md5)
         chunks, metadatas = iter_legal_chunks(tree)
         chunk_count = upsert_file_chunks(filename, chunks, md5, metadatas)

@@ -103,10 +103,37 @@ class Retriever:
     # ------------------------------------------------------------------
     # 两个子检索器
     # ------------------------------------------------------------------
-    def _bm25_ids(self, query: str, top_n: int) -> list[str]:
-        """BM25 关键词检索，返回按相关度排序的 doc id。"""
+    def _candidate_ids(self, region: str) -> set[str] | None:
+        """按事发地 region 缩候选集：国家法律 + region 匹配的地方法规。
+
+        返回候选 id 集合（可能只含国家法律，若库里无该地区条例）；
+        region 为空 → 返回 None（全量检索）。
+        注意：region 非空时**不回退全量**——即使库里没有该地区的地方法规，
+        也只保留国家法律，绝不把其它省/市的条例放进候选（宁少勿错）。
+        """
+        if not region:
+            return None
+        cand: set[str] = set()
+        for i, m in enumerate(self._metas):
+            ft = m.get("file_type", "") or ""
+            if ft == "国家法律":
+                cand.add(self._ids[i])
+            elif (m.get("region") or "") == region:
+                cand.add(self._ids[i])
+        return cand
+
+    def _bm25_ids(self, query: str, top_n: int, candidate_ids: set[str] | None = None) -> list[str]:
+        """BM25 关键词检索，返回按相关度排序的 doc id。
+
+        candidate_ids 非空时，只在这些候选（国家法律+事发地条例）里打分排序，
+        其它省/市的地方性法规不参与，从根上避免"上海事故查到湖北条例"。
+        """
         scores = self._bm25.get_scores(jieba.lcut(query))
-        ranked = sorted(range(len(scores)), key=lambda i: -scores[i])[:top_n]
+        if candidate_ids is not None:
+            cand_idx = [i for i, did in enumerate(self._ids) if did in candidate_ids]
+            ranked = sorted(cand_idx, key=lambda i: -scores[i])[:top_n]
+        else:
+            ranked = sorted(range(len(scores)), key=lambda i: -scores[i])[:top_n]
         return [self._ids[i] for i in ranked]
 
     def _split_query(self, query: str) -> list[str]:
@@ -121,13 +148,21 @@ class Retriever:
         logger.info("query 超长，分段检索: %d 段", len(segments))
         return segments
 
-    def _vector_ids(self, query: str, top_n: int) -> list[str]:
-        """向量语义检索：超长 query 按 token 分段查询后合并去重。"""
+    def _vector_ids(self, query: str, top_n: int, candidate_ids: set[str] | None = None) -> list[str]:
+        """向量语义检索：超长 query 按 token 分段查询后合并去重。
+
+        candidate_ids 非空时，只保留候选集内的命中（国家法律+事发地条例）；
+        其它省/市的地方性法规即使向量相近也不纳入。取数放宽到 top_n*3，
+        避免候选内真实相关项因全库排序靠后被截掉。
+        """
         all_ids: list[str] = []
         seen: set[str] = set()
+        fetch_n = top_n * 3 if candidate_ids is not None else top_n
         for seg in self._split_query(query):
-            res = self._collection.query(query_texts=[seg], n_results=top_n)
+            res = self._collection.query(query_texts=[seg], n_results=fetch_n)
             for doc_id in res["ids"][0]:
+                if candidate_ids is not None and doc_id not in candidate_ids:
+                    continue
                 if doc_id not in seen:
                     seen.add(doc_id)
                     all_ids.append(doc_id)
@@ -157,24 +192,37 @@ class Retriever:
         """
         self._ensure_loaded()
 
-    def retrieve(self, query: str, top_k: int = 5) -> list[dict]:
-        """混合检索，返回 top_k 条，每条含 id/text/meta/score。"""
+    def retrieve(self, query: str, top_k: int = 5, region: str | None = None) -> list[dict]:
+        """混合检索，返回 top_k 条，每条含 id/text/meta/score。
+
+        region 可选：事故发生地（如"上海"/"惠州"）。**打分前**先按 region 算出
+        候选集（国家法律 + region 匹配的地方法规），BM25 和向量检索都只在
+        候选集内打分——从源头避免"上海事故查到湖北条例"。region 为空或库里
+        无该地区条例（存量数据可能还没 region 字段）→ 候选集为 None，回退全量。
+        """
         self._ensure_loaded()
 
-        bm25_ids = self._bm25_ids(query, top_n=top_k * 2)
-        vec_ids = self._vector_ids(query, top_n=top_k * 2)
+        candidate_ids = self._candidate_ids(region) if region else None
+        bm25_ids = self._bm25_ids(query, top_n=top_k * 2, candidate_ids=candidate_ids)
+        vec_ids = self._vector_ids(query, top_n=top_k * 2, candidate_ids=candidate_ids)
         merged = self._rrf([bm25_ids, vec_ids], top_k=top_k)
 
         id2idx = {doc_id: i for i, doc_id in enumerate(self._ids)}
-        results = []
-        for doc_id, score in merged:
+
+        def hit(doc_id, score):
             idx = id2idx[doc_id]
-            results.append({
+            return {
                 "id": doc_id,
                 "text": self._docs[idx],
                 "meta": self._metas[idx],
                 "score": round(score, 5),
-            })
+            }
+
+        results = [hit(did, sc) for did, sc in merged]
+
+        # 双保险：候选集内约束后，仍按 region 精确过滤一次（避免非 region 条例混入）
+        if candidate_ids is not None:
+            results = [h for h in results if h["id"] in candidate_ids]
         return results
 
 

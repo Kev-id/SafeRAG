@@ -23,11 +23,12 @@ def upsert(kf: dict) -> None:
     try:
         conn.execute(
             """INSERT INTO kb_files
-               (filename, md5, file_type, size, chunk_count, status, message, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               (filename, md5, file_type, region, size, chunk_count, status, message, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(filename) DO UPDATE SET
                    md5 = excluded.md5,
                    file_type = excluded.file_type,
+                   region = excluded.region,
                    size = excluded.size,
                    chunk_count = excluded.chunk_count,
                    status = excluded.status,
@@ -37,6 +38,7 @@ def upsert(kf: dict) -> None:
                 kf["filename"],
                 kf.get("md5"),
                 kf.get("file_type"),
+                kf.get("region"),
                 kf.get("size"),
                 kf.get("chunk_count", 0),
                 kf.get("status", "building"),
@@ -61,7 +63,7 @@ def get(filename: str) -> dict | None:
     return dict(row) if row else None
 
 
-def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None) -> list[dict]:
+def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None) -> list[dict]:
     """列出所有指定类型的登记文件（按文件名排序）。"""
     conditions, params = [], []
     if file_type:
@@ -73,6 +75,9 @@ def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword
     if keyword:
         conditions.append("filename LIKE ?")
         params.append(f"%{keyword}%")
+    if region:
+        conditions.append("region = ?")
+        params.append(region)
     where = f" WHERE {' AND '.join(conditions)}" if conditions else ""#这行意思是，如果有条件，就加上 WHERE 子句，否则为空字符串。
     conn = get_connection()
     try:
