@@ -31,11 +31,12 @@ ALLOWED_EXTS = {".txt", ".docx", ".pdf"}
 
 _wake_kb = asyncio.Event()
 
-async def upload_kb_file(filename: str, content: bytes, file_type: str, region: str | None = None) -> dict:
+async def upload_kb_file(filename: str, content: bytes, file_type: str,
+                         region: str | None = None, city: str | None = None) -> dict:
     """保存上传文件，登记到 SQLite。
 
     文件格式由 parse_to_tree 按 filename 后缀分派，本函数不关心格式。
-    """
+    region/city：省/直辖市 + 地级市（前端传，空=全国性法规）。"""
     safe_name = os.path.basename(filename)  # 防路径穿越：只取文件名
     ext = os.path.splitext(safe_name)[1].lower()
     if ext not in ALLOWED_EXTS:
@@ -50,7 +51,8 @@ async def upload_kb_file(filename: str, content: bytes, file_type: str, region: 
 
     now = datetime.now(timezone.utc).isoformat()
     kb_file_repo.upsert({
-        "filename": safe_name, "file_type": file_type, "region": region, "size": len(content),
+        "filename": safe_name, "file_type": file_type, "region": region, "city": city,
+        "size": len(content),
         "chunk_count": 0, "status": "queued", "message": None, "updated_at": now,
     })
     _wake_kb.set()
@@ -61,12 +63,15 @@ async def _process_kb_file(kf: dict) -> dict:
     safe_name = kf["filename"]
     file_type = kf["file_type"]
     region = kf["region"]
+    city = kf["city"] if "city" in kf else ""
     with open(os.path.join(KB_SOURCE_DIR, safe_name), "rb") as f:
         content = f.read()
 
     try:
         # 解析段：bytes → 文档树（合同），CPU 密集丢线程池，落盘到 kb_trees
-        tree, md5 = await asyncio.to_thread(parse_to_tree, content, safe_name, file_type, region)
+        tree, md5 = await asyncio.to_thread(
+            parse_to_tree, content, safe_name, file_type, region, city
+        )
         await asyncio.to_thread(kb_tree_repo.save, safe_name, tree, md5)
         # 入库段：只认树，从树出块 → 写索引，绝不重新解析
         chunks, metadatas = iter_legal_chunks(tree)
@@ -83,7 +88,8 @@ async def _process_kb_file(kf: dict) -> dict:
         raise
     now = datetime.now(timezone.utc).isoformat()
     kb_file_repo.upsert({
-        "filename": safe_name, "md5": md5, "file_type": file_type, "region": region, "size": len(content),
+        "filename": safe_name, "md5": md5, "file_type": file_type, "region": region,
+        "city": city, "size": len(content),
         "chunk_count": chunk_count, "status": "ready", "message": None, "updated_at": now,
     })
     reset_retriever()  # 检索器缓存失效，下次检索才拿得到新文件
