@@ -76,6 +76,11 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
         chunk_count = upsert_file_chunks(filename, chunks, md5, metadatas)
         kb_file_repo.upsert({
             "filename": filename, "md5": md5,
+            # 关键：必须带上 file_type/region/city —— upsert 的 ON CONFLICT 会把这些字段
+            # 用传进来的值覆盖，不带就会把登记册里的类型/省市全冲空（历史 bug）。
+            "file_type": kf.get("file_type") or "",
+            "region": kf.get("region") or "",
+            "city": kf.get("city") or "",
             "size": os.path.getsize(path), "chunk_count": chunk_count,
             "status": "ready", "message": None,
             "updated_at": datetime.now(timezone.utc).isoformat(),
