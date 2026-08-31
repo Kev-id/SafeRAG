@@ -103,22 +103,48 @@ class Retriever:
     # ------------------------------------------------------------------
     # 两个子检索器
     # ------------------------------------------------------------------
-    def _candidate_ids(self, region: str) -> set[str] | None:
-        """按事发地 region 缩候选集：国家法律 + region 匹配的地方法规。
+    def _candidate_ids(self, provinces: list[str] | None = None,
+                       cities: list[str] | None = None,
+                       file_types: list[str] | None = None) -> set[str] | None:
+        """三层筛选缩候选集：先 file_type，地方法规再省市。
 
-        返回候选 id 集合（可能只含国家法律，若库里无该地区条例）；
-        region 为空 → 返回 None（全量检索）。
-        注意：region 非空时**不回退全量**——即使库里没有该地区的地方法规，
-        也只保留国家法律，绝不把其它省/市的条例放进候选（宁少勿错）。
+        语义（用户拍板 A —— file_type 是最外层，勾地方法规只看地方法规）：
+          - 什么都不勾 → None（全量）
+          - 只勾 file_type（如["国家法律"]）→ 仅该类型，不进省市
+          - 勾["地方法规"]（+ 可选省市）→ 只地方法规，走省市层过滤
+          - 不勾 file_type 但勾省市（旧语义兼容）→ 国家法律始终保留 + 省/市地方法规
+        国家法律仅在"未做 file_type 筛选"或"file_type 含国家法律"时保留。
         """
-        if not region:
+        has_ft = bool(file_types)
+        has_region = bool(provinces or cities)
+        if not has_ft and not has_region:
             return None
+        ftset = set(file_types) if has_ft else None
+        pset = set(provinces or [])
+        cset = set(cities or [])
         cand: set[str] = set()
         for i, m in enumerate(self._metas):
             ft = m.get("file_type", "") or ""
+            if ftset is not None and ft not in ftset:
+                continue  # file_type 筛选未命中
             if ft == "国家法律":
-                cand.add(self._ids[i])
-            elif (m.get("region") or "") == region:
+                # 国家法仅当没做类型筛选（旧语义）或类型筛选含国家法时保留
+                if ftset is None or "国家法律" in ftset:
+                    cand.add(self._ids[i])
+                continue
+            # 非国家法（地方法规/其它）：
+            if not has_region:
+                cand.add(self._ids[i])  # 只有 file_type 筛选 → 该类型全保留
+                continue
+            prov = m.get("region", "") or ""
+            city = m.get("city", "") or ""
+            # 省级条例（city 空）：仅当勾了省且该省在选中
+            if not city:
+                if pset and prov in pset:
+                    cand.add(self._ids[i])
+                continue
+            # 市级条例：province 匹配（prov 空则不限）+ city 在选中
+            if cset and city in cset and (not pset or prov in pset):
                 cand.add(self._ids[i])
         return cand
 
@@ -192,17 +218,21 @@ class Retriever:
         """
         self._ensure_loaded()
 
-    def retrieve(self, query: str, top_k: int = 5, region: str | None = None) -> list[dict]:
+    def retrieve(self, query: str, top_k: int = 5,
+                 provinces: list[str] | None = None,
+                 cities: list[str] | None = None,
+                 file_types: list[str] | None = None) -> list[dict]:
         """混合检索，返回 top_k 条，每条含 id/text/meta/score。
 
-        region 可选：事故发生地（如"上海"/"惠州"）。**打分前**先按 region 算出
-        候选集（国家法律 + region 匹配的地方法规），BM25 和向量检索都只在
-        候选集内打分——从源头避免"上海事故查到湖北条例"。region 为空或库里
-        无该地区条例（存量数据可能还没 region 字段）→ 候选集为 None，回退全量。
+        三层筛选（打分前候选化）：
+          file_types →（地方法规）→ provinces → cities
+        file_types 为 None 时保持旧语义（国家法始终 + 省市地方法规）。
+        全部空 → 全量检索。见 _candidate_ids 语义。
         """
         self._ensure_loaded()
 
-        candidate_ids = self._candidate_ids(region) if region else None
+        candidate_ids = self._candidate_ids(provinces, cities, file_types) \
+            if (provinces or cities or file_types) else None
         bm25_ids = self._bm25_ids(query, top_n=top_k * 2, candidate_ids=candidate_ids)
         vec_ids = self._vector_ids(query, top_n=top_k * 2, candidate_ids=candidate_ids)
         merged = self._rrf([bm25_ids, vec_ids], top_k=top_k)
@@ -220,7 +250,7 @@ class Retriever:
 
         results = [hit(did, sc) for did, sc in merged]
 
-        # 双保险：候选集内约束后，仍按 region 精确过滤一次（避免非 region 条例混入）
+        # 双保险：候选集内约束后，仍按候选集精确过滤一次（避免非匹配省/市混入）
         if candidate_ids is not None:
             results = [h for h in results if h["id"] in candidate_ids]
         return results

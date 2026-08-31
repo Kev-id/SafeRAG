@@ -48,11 +48,14 @@ async def upload_file(
     file: UploadFile = File(...),
     file_type: str = Form(...),
     region: Optional[str] = Form(None),
+    city: Optional[str] = Form(None),
     ):
-    """上传 txt 文件，登记到 SQLite 并写入 ChromaDB 索引。"""
+    """上传文件，登记到 SQLite 并写入 ChromaDB 索引。region/city 由前端传入。"""
     content = await file.read()
     try:
-        return await knowledge_service.upload_kb_file(file.filename or "", content, file_type=file_type, region=region)
+        return await knowledge_service.upload_kb_file(
+            file.filename or "", content, file_type=file_type, region=region, city=city
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 

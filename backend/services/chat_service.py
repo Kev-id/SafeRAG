@@ -36,12 +36,15 @@ def _content_to_text(content) -> str:
 
 
 def build_chat_messages(
-    messages: list[dict], enable_rag: bool, region: str | None = None
+    messages: list[dict], enable_rag: bool,
+    provinces: list[str] | None = None, cities: list[str] | None = None,
+    file_types: list[str] | None = None
 ) -> tuple[list[dict], list[str]]:
     """构造发给 Qwen 的 messages。
 
     取最后一轮 user 文本做检索（enable_rag 时）；检索到法规 → 在最前插一条
     独立 system（带编号法规）；不开/失败 → 原样转发。
+    provinces/cities/file_types 可选：省市多选 + 文件类型，透传给检索器。
 
     返回 (constructed_messages, sources)：sources 是 [编号]→来源 清单，
     供上层（若需要）拼"参考法规来源"附录。
@@ -56,7 +59,9 @@ def build_chat_messages(
     sources: list[str] = []
 
     if enable_rag and question.strip():
-        context, sources = retrieve_with_citations(question, region=region)
+        context, sources = retrieve_with_citations(
+            question, provinces=provinces, cities=cities, file_types=file_types
+        )
         if context:
             rag_content = context + _RAG_SYSTEM_PREFIX
             # Qwen 聊天模板要求 system 只能有一条且在开头（否则模板报
