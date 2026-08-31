@@ -47,10 +47,25 @@ def _split_sentences(text: str) -> list[str]:
 
 
 def _split_long_text(text: str, max_chars: int) -> list[str]:
-    """把过长条文按句子切开。"""
+    """把过长条文按句子切开。
+
+    单个"句子"就超过 max_chars（非标准格式常见的整段粘连、无句读符）时，
+    按字符硬切成 ≤max_chars 的小块——否则这条句子会整个成为一个 chunk，
+    动辄上千 token，直接把 embedding（位置上限 512）打爆（参见 embedding_client）。
+    """
     chunks: list[str] = []
     buf = ""
     for sent in _split_sentences(text):
+        if len(sent) > max_chars:
+            # 超长句：先把之前的 buf 落盘，再按字符切成若干 ≤max_chars 的块
+            if buf.strip():
+                chunks.append(buf.strip())
+                buf = ""
+            for i in range(0, len(sent), max_chars):
+                piece = sent[i:i + max_chars].strip()
+                if piece:
+                    chunks.append(piece)
+            continue
         if buf and len(buf) + len(sent) > max_chars:
             chunks.append(buf.strip())
             buf = sent
