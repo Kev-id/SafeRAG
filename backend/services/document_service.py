@@ -101,10 +101,12 @@ async def _process_document(doc: Document) -> None:
     template = get_template(doc.task_type)
     try:
         # 检索是 CPU 密集（jieba + BM25 + embedding），丢线程池，别阻塞事件循环。
-        # provinces/cities 是逗号分隔（"湖北,广东"），切成 list 做地域过滤
-        provinces = [p.strip() for p in doc.provinces.split(",") if p.strip()] if doc.provinces else None
-        cities = [c.strip() for c in doc.cities.split(",") if c.strip()] if doc.cities else None
-        file_types = [t.strip() for t in doc.file_types.split(",") if t.strip()] if doc.file_types else None
+        # provinces/cities/file_types 是逗号分隔（"湖北,广东"），切成 list 做过滤。
+        # 空串 → []（而不是 None）：[] 与 None 语义不同——file_types=[] 表示
+        # "显式一个类型都不选 → 什么都不检索"，None 才是"未做类型筛选 → 全量"。
+        provinces = [p.strip() for p in (doc.provinces or "").split(",") if p.strip()]
+        cities = [c.strip() for c in (doc.cities or "").split(",") if c.strip()]
+        file_types = [t.strip() for t in (doc.file_types or "").split(",") if t.strip()]
         context, sources = await asyncio.to_thread(
             retrieve_with_citations, doc.original_text, 5, provinces, cities, file_types
         )

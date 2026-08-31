@@ -109,13 +109,18 @@ class Retriever:
         """三层筛选缩候选集：先 file_type，地方法规再省市。
 
         语义（用户拍板 A —— file_type 是最外层，勾地方法规只看地方法规）：
-          - 什么都不勾 → None（全量）
+          - file_types 显式空列表 [] → 什么都不检索（返回空集，不是全量）
+          - file_types=None（未传，旧语义兼容）→ 国家法律恒在 + 省/市地方法规
           - 只勾 file_type（如["国家法律"]）→ 仅该类型，不进省市
           - 勾["地方法规"]（+ 可选省市）→ 只地方法规，走省市层过滤
-          - 不勾 file_type 但勾省市（旧语义兼容）→ 国家法律始终保留 + 省/市地方法规
         国家法律仅在"未做 file_type 筛选"或"file_type 含国家法律"时保留。
+        市级条例只认 city 选中、**不受省约束**：勾"东莞"就该出东莞法，
+        哪怕东莞属广东而没勾广东。
         """
-        has_ft = bool(file_types)
+        # 显式空类型 → 一个都不放行（区别于 None=未做类型筛选 → 全量/旧语义）
+        if file_types is not None and not file_types:
+            return set()
+        has_ft = file_types is not None
         has_region = bool(provinces or cities)
         if not has_ft and not has_region:
             return None
@@ -143,8 +148,8 @@ class Retriever:
                 if pset and prov in pset:
                     cand.add(self._ids[i])
                 continue
-            # 市级条例：province 匹配（prov 空则不限）+ city 在选中
-            if cset and city in cset and (not pset or prov in pset):
+            # 市级条例：显式勾了市就进（不受省约束——勾哪个市就要哪个市的法）
+            if cset and city in cset:
                 cand.add(self._ids[i])
         return cand
 
@@ -226,13 +231,15 @@ class Retriever:
 
         三层筛选（打分前候选化）：
           file_types →（地方法规）→ provinces → cities
-        file_types 为 None 时保持旧语义（国家法始终 + 省市地方法规）。
-        全部空 → 全量检索。见 _candidate_ids 语义。
+        file_types=None（未传）时保持旧语义（国家法始终 + 省市地方法规）；
+        file_types=[]（显式空）→ 什么都不检索。见 _candidate_ids 语义。
         """
         self._ensure_loaded()
 
+        # file_types=[] 是"显式一个都不选"，必须走 _candidate_ids（返回空集=什么都
+        # 不检索）；只有三个都是 None（旧调用方没传）才退化全量。[] 是假值，故用 is not None
         candidate_ids = self._candidate_ids(provinces, cities, file_types) \
-            if (provinces or cities or file_types) else None
+            if (provinces or cities or file_types is not None) else None
         bm25_ids = self._bm25_ids(query, top_n=top_k * 2, candidate_ids=candidate_ids)
         vec_ids = self._vector_ids(query, top_n=top_k * 2, candidate_ids=candidate_ids)
         merged = self._rrf([bm25_ids, vec_ids], top_k=top_k)

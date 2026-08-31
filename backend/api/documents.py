@@ -30,7 +30,7 @@ class ProcessRequest(BaseModel):
     region: str = ""          # 废弃兼容：省（旧），新用 provinces
     provinces: list[str] = []  # 可选：多选省，如 ["湖北","广东"]
     cities: list[str] = []     # 可选：多选市，如 ["武汉","深圳"]
-    file_types: list[str] = [] # 可选：多选文件类型，如 ["国家法律","地方法规"]
+    file_types: list[str] = [] # 必选语义：多选文件类型，如 ["国家法律","地方法规"]。空列表 = 什么都不选 → 报告不引法规
 
 class ProcessResponse(BaseModel):
     id: str

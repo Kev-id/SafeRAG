@@ -41,7 +41,7 @@ class ChatRequest(BaseModel):
     region: str | None = None    # 废弃兼容：省（旧），新用 provinces
     provinces: list[str] = []    # 可选：多选省，透传给检索器做地域过滤
     cities: list[str] = []       # 可选：多选市，透传给检索器做地域过滤
-    file_types: list[str] = []   # 可选：多选文件类型（国家法律/行政法规/地方法规等）
+    file_types: list[str] = []   # 必选语义：多选文件类型（国家法律/行政法规/地方法规等）。空列表 = 什么都不选 → 不注入法规
 
 
 @router.post("/chat/completions")
@@ -62,7 +62,7 @@ async def chat_completions(req: ChatRequest):
         constructed, _sources = await asyncio.to_thread(
             chat_service.build_chat_messages,
             messages, req.enable_rag,
-            req.provinces or None, req.cities or None, req.file_types or None
+            req.provinces, req.cities, req.file_types
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
