@@ -84,6 +84,18 @@ def init_db() -> None:
                 created_at TEXT NOT NULL
             )
         """)
+        # 认证用户表（三权分立账号 sysadmin/secadmin/audadmin）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                username      TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role          TEXT NOT NULL,
+                full_name     TEXT NOT NULL DEFAULT '',
+                is_active     INTEGER NOT NULL DEFAULT 1,
+                created_at    TEXT NOT NULL
+            )
+        """)
         conn.commit()
         logger.info("数据库初始化完成: %s", _DB_PATH)
     finally:

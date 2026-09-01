@@ -7,11 +7,12 @@ DELETE /api/v1/files/{filename}    删除知识库文件
 """
 
 from typing import Optional
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
 
 from backend.services import knowledge_service
+from backend.services.auth_service import any_role, ops_and_sec, secadmin_only
 
 router = APIRouter(prefix="/api/v1")
 
@@ -46,9 +47,10 @@ class KbStatsResponse(BaseModel):
 @router.post("/files", response_model=KbUploadResponse, status_code=201)
 async def upload_file(
     file: UploadFile = File(...),
-    file_type: str = Form(...),
+    file_type: Optional[str] = Form(None),
     region: Optional[str] = Form(None),
     city: Optional[str] = Form(None),
+    _user: dict = Depends(ops_and_sec),
     ):
     """上传文件，登记到 SQLite 并写入 ChromaDB 索引。region/city 由前端传入。"""
     content = await file.read()
@@ -61,14 +63,14 @@ async def upload_file(
 
 
 @router.get("/files", response_model=list[KbFileItem])
-async def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None):
+async def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None, _user: dict = Depends(any_role)):
     """列出知识库文件（读登记册，权威源）。"""
     items = await knowledge_service.list_kb_files(file_type=file_type, status=status, keyword=keyword, region=region)
     return [KbFileItem(**item) for item in items]
 
 
 @router.get("/files/{filename}", response_model=KbFileDetail)
-async def get_file(filename: str):
+async def get_file(filename: str, _user: dict = Depends(any_role)):
     """获取单个文件详情（元数据 + 正文）。"""
     try:
         item = await knowledge_service.get_kb_file(filename)
@@ -78,7 +80,7 @@ async def get_file(filename: str):
 
 
 @router.delete("/files/{filename}", response_model=KbUploadResponse)
-async def delete_file(filename: str):
+async def delete_file(filename: str, _user: dict = Depends(secadmin_only)):
     """删除知识库文件：索引 + 磁盘 + 登记册。"""
     try:
         return await knowledge_service.delete_kb_file(filename)
@@ -86,6 +88,6 @@ async def delete_file(filename: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.get("/kb/stats", response_model=KbStatsResponse)
-async def get_kb_stats():
+async def get_kb_stats(_user: dict = Depends(any_role)):
     """获取知识库统计信息"""
     return knowledge_service.get_stats()

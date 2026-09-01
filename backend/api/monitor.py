@@ -1,9 +1,10 @@
 """GET /api/v1/monitor — 盒子资源监控（CPU/内存/进程/TPU）。"""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from backend.services import monitor_service
+from backend.services.auth_service import any_role
 
 router = APIRouter(prefix="/api/v1")
 
@@ -49,7 +50,7 @@ class MonitorResponse(BaseModel):
 
 
 @router.get("/monitor", response_model=MonitorResponse)
-async def get_monitor():
+async def get_monitor(_user: dict = Depends(any_role)):
     """盒子 CPU / 内存 / 关键进程 / TPU（bm-smi）实时读数。"""
     raw = monitor_service.get_monitor()
     return MonitorResponse(
