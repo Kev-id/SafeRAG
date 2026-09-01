@@ -4,7 +4,7 @@
   from backend.services.auth_service import any_role, sysadmin_only, secadmin_only, ops_and_sec
 """
 
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -53,12 +53,22 @@ def _unauthorized(detail: str) -> HTTPException:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> dict:
-    """校验 Bearer token 并回读库确认账号有效，返回用户 dict。"""
-    if credentials is None:
+    """校验 JWT 并回读库确认账号有效，返回用户 dict。
+
+    Token 来源优先级：Authorization: Bearer 请求头 > 查询参数 ?token=。
+    查询参数用于纯 <a href>/window.open 类 GET（文件/文档下载），无法携带请求头。
+    """
+    token = None
+    if credentials is not None:
+        token = credentials.credentials
+    else:
+        token = request.query_params.get("token")
+    if not token:
         raise _unauthorized("未提供认证凭据")
-    payload = security.decode_token(credentials.credentials)
+    payload = security.decode_token(token)
     if payload is None:
         raise _unauthorized("令牌无效或已过期")
     username = payload.get("sub")
