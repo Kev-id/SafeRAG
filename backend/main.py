@@ -59,6 +59,7 @@ from backend.api.kb import router as kb_router
 from backend.api.health import router as health_router
 from backend.api.chat import router as chat_router
 from backend.api.monitor import router as monitor_router
+from backend.api.audit import router as audit_router
 
 app.include_router(auth_router)
 app.include_router(ai_router)
@@ -68,6 +69,7 @@ app.include_router(kb_router)
 app.include_router(health_router)
 app.include_router(chat_router)
 app.include_router(monitor_router)
+app.include_router(audit_router)
 
 @app.get("/")
 async def root():

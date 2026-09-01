@@ -1,7 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from backend.services import health_service
+from backend.services.auth_service import any_role
 
 router = APIRouter(prefix="/api/v1")
 
