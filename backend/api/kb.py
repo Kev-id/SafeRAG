@@ -12,7 +12,8 @@ from pydantic import BaseModel
 
 
 from backend.services import knowledge_service
-from backend.services.auth_service import any_role, ops_and_sec, secadmin_only
+from backend.repositories import kb_file_repo
+from backend.services.auth_service import any_role, kb_upload, secadmin_only
 
 router = APIRouter(prefix="/api/v1")
 
@@ -31,6 +32,7 @@ class KbFileItem(BaseModel):
     chunk_count: int = 0
     status: str = "building"
     message: str | None = None
+    sensitive: bool = False
     updated_at: str | None = None
 
 
@@ -44,13 +46,17 @@ class KbStatsResponse(BaseModel):
     total_size: int
     status_counts: dict[str, int]
 
+class SensitiveUpdate(BaseModel):
+    sensitive: bool
+
+
 @router.post("/files", response_model=KbUploadResponse, status_code=201)
 async def upload_file(
     file: UploadFile = File(...),
     file_type: Optional[str] = Form(None),
     region: Optional[str] = Form(None),
     city: Optional[str] = Form(None),
-    _user: dict = Depends(ops_and_sec),
+    _user: dict = Depends(kb_upload),
     ):
     """上传文件，登记到 SQLite 并写入 ChromaDB 索引。region/city 由前端传入。"""
     content = await file.read()
@@ -86,6 +92,20 @@ async def delete_file(filename: str, _user: dict = Depends(secadmin_only)):
         return await knowledge_service.delete_kb_file(filename)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch("/files/{filename}/sensitive", response_model=KbUploadResponse)
+async def set_sensitive(filename: str, body: SensitiveUpdate, _user: dict = Depends(secadmin_only)):
+    """标记/撤销敏感文件（仅安全保密员）。"""
+    item = kb_file_repo.get(filename)
+    if item is None:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    if not kb_file_repo.set_sensitive(filename, body.sensitive):
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return KbUploadResponse(
+        message="已标记为敏感文件" if body.sensitive else "已撤销敏感标记"
+    )
+
 
 @router.get("/kb/stats", response_model=KbStatsResponse)
 async def get_kb_stats(_user: dict = Depends(any_role)):

@@ -76,6 +76,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE kb_files ADD COLUMN region TEXT")
         if "city" not in cols:
             conn.execute("ALTER TABLE kb_files ADD COLUMN city TEXT")
+        if "sensitive" not in cols:
+            conn.execute("ALTER TABLE kb_files ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS kb_trees (
                 filename   TEXT PRIMARY KEY,

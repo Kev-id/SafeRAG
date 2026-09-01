@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from backend.services import monitor_service
-from backend.services.auth_service import any_role
+from backend.services.auth_service import monitor_view
 
 router = APIRouter(prefix="/api/v1")
 
@@ -50,7 +50,7 @@ class MonitorResponse(BaseModel):
 
 
 @router.get("/monitor", response_model=MonitorResponse)
-async def get_monitor(_user: dict = Depends(any_role)):
+async def get_monitor(_user: dict = Depends(monitor_view)):
     """盒子 CPU / 内存 / 关键进程 / TPU（bm-smi）实时读数。"""
     raw = monitor_service.get_monitor()
     return MonitorResponse(

@@ -13,7 +13,7 @@ from starlette.background import BackgroundTask
 
 from backend.core import doc_exporter
 from backend.services import document_service
-from backend.services.auth_service import any_role, sysadmin_only
+from backend.services.auth_service import any_role, business_write
 from backend.repositories.document_repo import report_path, DocStatus
 
 router = APIRouter(prefix="/api/v1")
@@ -130,7 +130,7 @@ async def list_documents(
     )
 
 @router.post("/documents/process", response_model=ProcessResponse, status_code=201)
-async def process(req: ProcessRequest, _user: dict = Depends(sysadmin_only)):
+async def process(req: ProcessRequest, _user: dict = Depends(business_write)):
     try:
         doc = await document_service.create_document(
             task_type=req.task_type,
@@ -174,7 +174,7 @@ async def get_document(doc_id: str, _user: dict = Depends(any_role)):
     )
 
 @router.post("/documents/{doc_id}/retry", response_model=ProcessResponse)
-async def retry(doc_id: str, _user: dict = Depends(sysadmin_only)):
+async def retry(doc_id: str, _user: dict = Depends(business_write)):
     """重试处理失败的文档（只允许失败状态的文档重试）。"""
     try:
         doc = await document_service.retry_document(doc_id)
@@ -236,7 +236,7 @@ async def download(doc_id: str, format: str = Query("md"), _user: dict = Depends
 
 
 @router.delete("/documents/{doc_id}", status_code=204)
-async def delete(doc_id: str, _user: dict = Depends(sysadmin_only)):
+async def delete(doc_id: str, _user: dict = Depends(business_write)):
     try:
         await document_service.delete_document(doc_id)
     except FileNotFoundError as e:

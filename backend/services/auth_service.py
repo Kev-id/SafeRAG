@@ -12,9 +12,10 @@ from backend.core import security
 from backend.repositories import user_repo
 
 # 角色常量
-ROLE_SYS = "sysadmin"
-ROLE_SEC = "secadmin"
-ROLE_AUD = "audadmin"
+ROLE_USER = "user"       # 普通用户
+ROLE_SYS = "sysadmin"    # 系统管理员
+ROLE_SEC = "secadmin"    # 安全保密员
+ROLE_AUD = "audadmin"    # 审计员
 
 # Bearer token 提取（auto_error=False 便于区分"未携带"和"无效"）
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -93,7 +94,17 @@ def require_roles(*allowed_roles: str):
 
 
 # 预定义角色依赖（按确认的权限矩阵）
-any_role = require_roles(ROLE_SYS, ROLE_SEC, ROLE_AUD)   # 登录即读
-sysadmin_only = require_roles(ROLE_SYS)                  # 业务文档编排/删除
-secadmin_only = require_roles(ROLE_SEC)                  # 知识库安全数据写
-ops_and_sec = require_roles(ROLE_SYS, ROLE_SEC)          # AI 对话
+#
+#   user       普通用户：业务全功能（读写），禁监控/用户管理/系统配置/审计
+#   sysadmin   系统管理员：业务 + 用户管理 + 系统配置 + 后台监控
+#   secadmin   安全保密员：业务（含知识库写） + 后台监控；专属=知识库文件删除
+#   audadmin   审计员：全局只读（审计日志未来接入）
+any_role = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC, ROLE_AUD)   # 登录即可读
+business_write = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC)       # 业务写（建/删报告、对话）
+kb_upload = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC)            # 知识库上传
+kb_delete = require_roles(ROLE_SEC)                                 # 安全保密员专属：知识库文件删除
+monitor_view = require_roles(ROLE_SYS, ROLE_SEC, ROLE_AUD)          # 后台监控（普通用户不可见）
+user_admin = require_roles(ROLE_SYS)                                # 系统管理员专属：用户管理
+sysadmin_only = require_roles(ROLE_SYS)                             # 系统管理员专属（别名）
+secadmin_only = require_roles(ROLE_SEC)                             # 安全保密员专属（别名）
+ops_and_sec = require_roles(ROLE_SYS, ROLE_SEC)                     # 兼容保留：sysadmin+secadmin
