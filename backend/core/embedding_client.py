@@ -52,21 +52,34 @@ def _ensure_loaded() -> None:
     logger.info("embedding 模型已加载: %s (输入节点: %s)", model_path, _input_names)
 
 
+# BGE 位置编码上限 512，留 2 位余量。模型内是固定长度位置向量的 Add：
+# 输入超上限会 ONNX 广播报错（"Attempting to broadcast ... 512 by 2022"）。
+# 「批内最长文本」是唯一真相源——一条超长就会把整批 pad 到几千 token。
+_MAX_SEQ_TOKENS = 510
+
+
 def _encode_batch(texts: list[str]) -> tuple[list[list[int]], list[list[int]], list[list[int]]]:
     """批量编码，并 padding 到同一长度。
+
+    超长文本（非标准格式文档切出的巨长块）截断到 _MAX_SEQ_TOKENS。
+    不截断的话，批内最长一条会把全批 pad 到几千 token，触发 ONNX 广播报错。
+    截断保留开头（region/title 前缀都在头部），宁可丢尾巴不崩整批。
 
     返回 (input_ids, attention_mask, token_type_ids)，三个都是等长二维列表。
     """
     encodings = [_tokenizer.encode(t) for t in texts]
-    max_len = max(len(e.ids) for e in encodings)
+    lengths = [min(_MAX_SEQ_TOKENS, len(e.ids)) for e in encodings]
+    max_len = max(lengths)
 
     input_ids, attention_mask, token_type_ids = [], [], []
-    for e in encodings:
-        pad = max_len - len(e.ids)
-        input_ids.append(e.ids + [0] * pad)
-        attention_mask.append(e.attention_mask + [0] * pad)
+    for e, L in zip(encodings, lengths):
+        ids = e.ids[:L]
+        mask = e.attention_mask[:L]
         # BERT 单句输入，token_type 全 0
-        tids = getattr(e, "type_ids", [0] * len(e.ids))
+        tids = getattr(e, "type_ids", [0] * len(e.ids))[:L]
+        pad = max_len - L
+        input_ids.append(ids + [0] * pad)
+        attention_mask.append(mask + [0] * pad)
         token_type_ids.append(tids + [0] * pad)
     return input_ids, attention_mask, token_type_ids
 
