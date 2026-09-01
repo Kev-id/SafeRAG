@@ -16,5 +16,5 @@ class HealthResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check():
+async def health_check(_user: dict = Depends(any_role)):
     return await health_service.get_health_status()

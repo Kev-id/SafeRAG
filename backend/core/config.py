@@ -37,3 +37,16 @@ KB_COLLECTION = os.getenv("KB_COLLECTION", "regulations")
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8081"))
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+# ---- JWT 认证 ----
+# 生产务必通过环境变量 JWT_SECRET 覆盖默认值
+JWT_SECRET = os.getenv("JWT_SECRET", "saferag-dev-secret-please-change-in-prod")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))    # 默认 12 小时
+
+# ---- 三权分立种子账号初始密码（简单默认密码，可用环境变量覆盖）----
+SEED_PASSWORDS = {
+    "sysadmin": os.getenv("SYSADMIN_PASSWORD", "sysadmin@2026"),
+    "secadmin": os.getenv("SECADMIN_PASSWORD", "secadmin@2026"),
+    "audadmin": os.getenv("AUDADMIN_PASSWORD", "audadmin@2026"),
+}
