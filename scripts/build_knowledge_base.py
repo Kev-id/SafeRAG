@@ -36,14 +36,14 @@ def _md5_of(path: str, filename: str) -> str:
 def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
     """按登记册重建索引：读 kb_files → 对每个文件判 md5 → 变了才重切。
 
-    返回汇总 dict: {"chunks", "files", "updated", "skipped"}。
+    返回汇总 dict: {"chunks", "files", "updated", "skipped", "failed"}。
     """
     registered = kb_file_repo.list_files()
     if not registered:
         print("登记册为空，跳过（请先用上传接口添加文件）")
         return {"chunks": 0, "files": 0, "updated": 0, "skipped": 0}
 
-    updated, skipped = 0, 0
+    updated, skipped, failed = 0, 0, 0
     active_sources: set[str] = set()
 
     for kf in registered:
@@ -55,27 +55,51 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
             logger.warning("登记文件 %s 不在源目录，跳过（先用删除接口清理）", filename)
             continue
 
-        # 没变就跳过（登记册的 md5 是真源，不用拉 ChromaDB）。
-        # 这里的 md5 仅用于判改：与 parse_to_tree 内算的同源同值（解码后文本的 md5），
-        # 解析后还会再算一次确认。轻量所以单独跑。
-        md5 = _md5_of(path, filename)
-        if not force and kf.get("md5") == md5:
-            skipped += 1
+        # 单个文件失败绝不能拖垮整批：标 failed、跳过、继续下一个。
+        # （历史 bug：空文档/坏 docx/pdf 无文本会让 build 直接崩退出，前功尽弃）
+        try:
+            # 没变就跳过（登记册的 md5 是真源，不用拉 ChromaDB）。
+            # 这里的 md5 仅用于判改：与 parse_to_tree 内算的同源同值（解码后文本的 md5），
+            # 解析后还会再算一次确认。轻量所以单独跑。
+            md5 = _md5_of(path, filename)
+            if not force and kf.get("md5") == md5:
+                skipped += 1
+                continue
+
+            # 重建脚本以源文件为准：bytes → 树 → 存合同 → 从树出块入库。
+            with open(path, "rb") as f:
+                content = f.read()
+            tree, md5 = parse_to_tree(
+                content, filename=filename, file_type=kf.get("file_type") or "",
+                region=kf.get("region") or "",
+                city=kf.get("city") or "",
+            )
+            kb_tree_repo.save(filename, tree, md5)
+            chunks, metadatas = iter_legal_chunks(tree)
+            chunk_count = upsert_file_chunks(filename, chunks, md5, metadatas)
+        except Exception as e:
+            logger.exception("重建失败，跳过 %s", filename)
+            kb_file_repo.upsert({
+                "filename": filename,
+                # 关键：必须带上 file_type/region/city —— upsert 的 ON CONFLICT 会把这些字段
+                # 用传进来的值覆盖，不带就会把登记册里的类型/省市全冲空（历史 bug）。
+                "file_type": kf.get("file_type") or "",
+                "region": kf.get("region") or "",
+                "city": kf.get("city") or "",
+                "size": os.path.getsize(path), "chunk_count": 0,
+                "status": "failed", "message": str(e),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+            failed += 1
             continue
 
-        # 重建脚本以源文件为准：bytes → 树 → 存合同 → 从树出块入库。
-        with open(path, "rb") as f:
-            content = f.read()
-        tree, md5 = parse_to_tree(
-            content, filename=filename, file_type=kf.get("file_type") or "",
-            region=kf.get("region") or "",
-            city=kf.get("city") or "",
-        )
-        kb_tree_repo.save(filename, tree, md5)
-        chunks, metadatas = iter_legal_chunks(tree)
-        chunk_count = upsert_file_chunks(filename, chunks, md5, metadatas)
         kb_file_repo.upsert({
             "filename": filename, "md5": md5,
+            # 关键：必须带上 file_type/region/city —— upsert 的 ON CONFLICT 会把这些字段
+            # 用传进来的值覆盖，不带就会把登记册里的类型/省市全冲空（历史 bug）。
+            "file_type": kf.get("file_type") or "",
+            "region": kf.get("region") or "",
+            "city": kf.get("city") or "",
             "size": os.path.getsize(path), "chunk_count": chunk_count,
             "status": "ready", "message": None,
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -94,7 +118,7 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
 
     final_metas = get_all_batch(collection, include=["metadatas"])["metadatas"]
     file_count = len({m["source"] for m in final_metas})
-    print(f"\n✅ 知识库重建完成: 共 {len(final_metas)} 块 / {file_count} 个文件（更新 {updated}，跳过 {skipped}）")
+    print(f"\n✅ 知识库重建完成: 共 {len(final_metas)} 块 / {file_count} 个文件（更新 {updated}，跳过 {skipped}，失败 {failed}）")
 
     # 自测：查一条，验证端到端能检索
     test_q = "企业应当如何开展安全生产教育和培训？"
@@ -111,6 +135,7 @@ def build(source_dir: str = KB_SOURCE_DIR, force: bool = False) -> dict:
         "files": file_count,
         "updated": updated,
         "skipped": skipped,
+        "failed": failed,
     }
 
 

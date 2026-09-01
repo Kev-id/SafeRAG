@@ -40,8 +40,13 @@ def upsert_file_chunks(
     chunks: list[str],
     md5: str,
     metadatas: list[dict] | None = None,
+    embeddings: list[list[float]] | None = None,
 ) -> int:
-    """把文件切好的块写入索引（先清掉该文件旧块再写），返回块数。"""
+    """把文件切好的块写入索引（先清掉该文件旧块再写），返回块数。
+
+    embeddings 非空时只把向量直插（跳过 embedding 函数）——供 build 预计算好
+    向量后写库，避免 Chroma 内部再嵌一遍；None 则让 Chroma 用 embedding 函数现算。
+    """
     collection = get_collection()
     try:
         collection.delete(where={"source": filename})
@@ -63,11 +68,14 @@ def upsert_file_chunks(
         ]
     for start in range(0, len(chunks), _BATCH):
         end = min(start + _BATCH, len(chunks))
-        collection.upsert(
+        kw = dict(
             ids=ids[start:end],
             documents=chunks[start:end],
             metadatas=metadatas[start:end],
         )
+        if embeddings is not None:
+            kw["embeddings"] = embeddings[start:end]
+        collection.upsert(**kw)
     return len(chunks)
 
 
