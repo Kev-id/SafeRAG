@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from backend.services import operation_log_service
-from backend.services.auth_service import audadmin_only
+from backend.services.auth_service import perm_aud
 
 router = APIRouter(prefix="/api/v1")
 
@@ -38,7 +38,7 @@ async def list_logs(
     username: str | None = Query(None, description="按操作者过滤"),
     action: str | None = Query(None, description="按动作类型过滤，如 login/create_document"),
     success: int | None = Query(None, ge=0, le=1, description="按结果过滤: 1 成功 / 0 失败"),
-    _user: dict = Depends(audadmin_only),
+    _user: dict = Depends(perm_aud),
 ):
     """分页查询操作日志（仅审计管理员可访问，其它角色返回 403）。"""
     return operation_log_service.list_logs(
