@@ -76,6 +76,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE kb_files ADD COLUMN region TEXT")
         if "city" not in cols:
             conn.execute("ALTER TABLE kb_files ADD COLUMN city TEXT")
+        if "sensitive" not in cols:
+            conn.execute("ALTER TABLE kb_files ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS kb_trees (
                 filename   TEXT PRIMARY KEY,
@@ -84,6 +86,34 @@ def init_db() -> None:
                 created_at TEXT NOT NULL
             )
         """)
+        # 认证用户表（三权分立账号 sysadmin/secadmin/audadmin）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                username      TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role          TEXT NOT NULL,
+                full_name     TEXT NOT NULL DEFAULT '',
+                is_active     INTEGER NOT NULL DEFAULT 1,
+                created_at    TEXT NOT NULL
+            )
+        """)
+        # 操作日志表（审计留痕：谁在何时做了什么、结果如何；仅审计管理员可查）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS operation_log (
+                id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts       TEXT NOT NULL,             -- 操作时间（UTC）
+                username TEXT NOT NULL,             -- 操作者
+                role     TEXT NOT NULL,             -- 操作时角色快照（防角色变更）
+                action   TEXT NOT NULL,             -- login / create_document / delete_file ...
+                target   TEXT NOT NULL DEFAULT '',  -- 目标对象：doc_id / filename / username
+                detail   TEXT NOT NULL DEFAULT '',  -- 补充说明：任务类型 / 失败原因等
+                ip       TEXT NOT NULL DEFAULT '',  -- 客户端 IP
+                success  INTEGER NOT NULL DEFAULT 1 -- 1 成功 / 0 失败
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_operation_log_ts ON operation_log(ts DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_operation_log_username ON operation_log(username)")
         conn.commit()
         logger.info("数据库初始化完成: %s", _DB_PATH)
     finally:

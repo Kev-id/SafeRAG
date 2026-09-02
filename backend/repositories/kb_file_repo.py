@@ -92,6 +92,20 @@ def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword
     return [dict(row) for row in rows]
 
 
+def set_sensitive(filename: str, sensitive: bool) -> bool:
+    """标记/撤销敏感文件；更新成功返回 True。"""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE kb_files SET sensitive=? WHERE filename=?",
+            (1 if sensitive else 0, filename),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
 def delete(filename: str) -> bool:
     """按文件名删一行；删除成功返回 True。"""
     conn = get_connection()

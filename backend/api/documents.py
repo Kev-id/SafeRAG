@@ -6,13 +6,14 @@ GET    /api/v1/documents/{id}/download
 import os
 import tempfile
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from backend.core import doc_exporter
-from backend.services import document_service
+from backend.services import document_service, operation_log_service
+from backend.services.auth_service import perm_user_sys_sec_aud, perm_user_sys_sec
 from backend.repositories.document_repo import report_path, DocStatus
 
 router = APIRouter(prefix="/api/v1")
@@ -74,7 +75,7 @@ class DocumentStatsResponse(BaseModel):
 # 端点
 # ---------------------------------------------------------------------------
 @router.get("/documents/stats", response_model=DocumentStatsResponse)
-async def get_document_stats():
+async def get_document_stats(_user: dict = Depends(perm_user_sys_sec_aud)):
     """获取文档处理统计信息"""
     stats = await document_service.get_stats()
     return DocumentStatsResponse(
@@ -90,6 +91,7 @@ async def list_documents(
     status: str | None = Query(None, description="按状态过滤: pending/queued/processing/completed/failed"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页条数"),
+    _user: dict = Depends(perm_user_sys_sec_aud),
 ):
     """分页获取文档列表，按创建时间倒序。"""
     # 把字符串转成 DocStatus 枚举
@@ -128,7 +130,7 @@ async def list_documents(
     )
 
 @router.post("/documents/process", response_model=ProcessResponse, status_code=201)
-async def process(req: ProcessRequest):
+async def process(req: ProcessRequest, request: Request, _user: dict = Depends(perm_user_sys_sec)):
     try:
         doc = await document_service.create_document(
             task_type=req.task_type,
@@ -144,6 +146,11 @@ async def process(req: ProcessRequest):
         raise HTTPException(status_code=422, detail=f"无效的任务类型: {req.task_type}")
 
     # 只建记录，worker 协程会自己认领处理（见 document_service.worker）
+    ip = request.client.host if request.client else ""
+    operation_log_service.record_user(
+        _user, "create_document", target=doc.id,
+        detail=f"task_type={req.task_type}", ip=ip,
+    )
     return ProcessResponse(
         id=doc.id,
         status=doc.status.value,
@@ -153,7 +160,7 @@ async def process(req: ProcessRequest):
 
 
 @router.get("/documents/{doc_id}", response_model=DocumentDetail)
-async def get_document(doc_id: str):
+async def get_document(doc_id: str, _user: dict = Depends(perm_user_sys_sec_aud)):
     try:
         doc = await document_service.get_detail(doc_id)
     except FileNotFoundError as e:
@@ -172,7 +179,7 @@ async def get_document(doc_id: str):
     )
 
 @router.post("/documents/{doc_id}/retry", response_model=ProcessResponse)
-async def retry(doc_id: str):
+async def retry(doc_id: str, request: Request, _user: dict = Depends(perm_user_sys_sec)):
     """重试处理失败的文档（只允许失败状态的文档重试）。"""
     try:
         doc = await document_service.retry_document(doc_id)
@@ -181,6 +188,8 @@ async def retry(doc_id: str):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    ip = request.client.host if request.client else ""
+    operation_log_service.record_user(_user, "retry_document", target=doc_id, ip=ip)
     return ProcessResponse(
         id=doc.id,
         status=doc.status.value,
@@ -190,7 +199,7 @@ async def retry(doc_id: str):
 
 
 @router.get("/documents/{doc_id}/download")
-async def download(doc_id: str, format: str = Query("md")):
+async def download(doc_id: str, format: str = Query("md"), _user: dict = Depends(perm_user_sys_sec_aud)):
     """下载报告：format=md 返回原 .md；format=docx 用 pandoc 转 Word。
 
     Word 是按需派生的：临时文件转完即返回，响应后由 BackgroundTask 清理，不落库。
@@ -234,10 +243,12 @@ async def download(doc_id: str, format: str = Query("md")):
 
 
 @router.delete("/documents/{doc_id}", status_code=204)
-async def delete(doc_id: str):
+async def delete(doc_id: str, request: Request, _user: dict = Depends(perm_user_sys_sec)):
     try:
         await document_service.delete_document(doc_id)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    ip = request.client.host if request.client else ""
+    operation_log_service.record_user(_user, "delete_document", target=doc_id, ip=ip)
 
 

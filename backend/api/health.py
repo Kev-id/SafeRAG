@@ -1,7 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from backend.services import health_service
+from backend.services.auth_service import perm_user_sys_sec_aud
 
 router = APIRouter(prefix="/api/v1")
 
@@ -16,5 +17,5 @@ class HealthResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check():
+async def health_check(_user: dict = Depends(perm_user_sys_sec_aud)):
     return await health_service.get_health_status()

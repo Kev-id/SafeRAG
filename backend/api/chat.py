@@ -11,12 +11,13 @@ import json
 import time
 from typing import List, Optional, Union
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.core import qwen_client
 from backend.services import chat_service
+from backend.services.auth_service import perm_user_sys_sec
 
 router = APIRouter(prefix="/api/v1")
 
@@ -75,7 +76,7 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/chat/completions")
-async def chat_completions(req: ChatRequest):
+async def chat_completions(req: ChatRequest, _user: dict = Depends(perm_user_sys_sec)):
     """流式聊天（SSE）。enable_rag=true 时先检索法规注入 system 提示。
     content 支持字符串或 [{type:text},{type:image_url}] 数组（图片 base64），
     RAG 检索只取其中的文本部分，图片项原样透传给 Qwen 引擎。"""
