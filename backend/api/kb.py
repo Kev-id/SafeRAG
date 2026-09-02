@@ -86,7 +86,7 @@ async def get_file(filename: str, _user: dict = Depends(perm_user_sys_sec_aud)):
 
 
 @router.delete("/files/{filename}", response_model=KbUploadResponse)
-async def delete_file(filename: str, _user: dict = Depends(perm_sec)):
+async def delete_file(filename: str, _user: dict = Depends(perm_user_sys_sec)):
     """删除知识库文件：索引 + 磁盘 + 登记册。"""
     try:
         return await knowledge_service.delete_kb_file(filename)
