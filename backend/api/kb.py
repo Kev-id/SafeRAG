@@ -105,13 +105,18 @@ async def delete_file(filename: str, request: Request, _user: dict = Depends(sec
 
 
 @router.patch("/files/{filename}/sensitive", response_model=KbUploadResponse)
-async def set_sensitive(filename: str, body: SensitiveUpdate, _user: dict = Depends(secadmin_only)):
+async def set_sensitive(filename: str, body: SensitiveUpdate, request: Request, _user: dict = Depends(secadmin_only)):
     """标记/撤销敏感文件（仅安全保密员）。"""
     item = kb_file_repo.get(filename)
     if item is None:
         raise HTTPException(status_code=404, detail="文件不存在")
     if not kb_file_repo.set_sensitive(filename, body.sensitive):
         raise HTTPException(status_code=404, detail="文件不存在")
+    ip = request.client.host if request.client else ""
+    operation_log_service.record_user(
+        _user, "set_sensitive", target=filename,
+        detail=f"sensitive={body.sensitive}", ip=ip,
+    )
     return KbUploadResponse(
         message="已标记为敏感文件" if body.sensitive else "已撤销敏感标记"
     )
