@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from backend.core import security
 from backend.repositories import user_repo
+from backend.services import operation_log_service
 
 # 角色常量
 ROLE_USER = "user"       # 普通用户
@@ -29,14 +30,21 @@ class LoginResponse(BaseModel):
     full_name: str
 
 
-def login(username: str, password: str) -> LoginResponse:
-    """校验用户名密码，成功返回带 JWT 的响应；失败抛 401。"""
+def login(username: str, password: str, ip: str = "") -> LoginResponse:
+    """校验用户名密码，成功返回带 JWT 的响应；失败抛 401。登录成败均写入操作日志。"""
     user = user_repo.get_user_by_username(username)
     if not user or not user["is_active"]:
+        operation_log_service.record(
+            username, "", "login", detail="用户名或密码错误", ip=ip, success=False
+        )
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     if not security.verify_password(password, user["password_hash"]):
+        operation_log_service.record(
+            username, user["role"], "login", detail="用户名或密码错误", ip=ip, success=False
+        )
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = security.create_access_token(user["username"], user["role"])
+    operation_log_service.record(user["username"], user["role"], "login", ip=ip, success=True)
     return LoginResponse(
         access_token=token,
         username=user["username"],

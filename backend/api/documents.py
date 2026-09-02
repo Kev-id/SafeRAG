@@ -6,14 +6,19 @@ GET    /api/v1/documents/{id}/download
 import os
 import tempfile
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from backend.core import doc_exporter
+<<<<<<< HEAD
 from backend.services import document_service
 from backend.services.auth_service import any_role, business_write
+=======
+from backend.services import document_service, operation_log_service
+from backend.services.auth_service import any_role, sysadmin_only
+>>>>>>> feat/audit-log
 from backend.repositories.document_repo import report_path, DocStatus
 
 router = APIRouter(prefix="/api/v1")
@@ -130,7 +135,11 @@ async def list_documents(
     )
 
 @router.post("/documents/process", response_model=ProcessResponse, status_code=201)
+<<<<<<< HEAD
 async def process(req: ProcessRequest, _user: dict = Depends(business_write)):
+=======
+async def process(req: ProcessRequest, request: Request, _user: dict = Depends(sysadmin_only)):
+>>>>>>> feat/audit-log
     try:
         doc = await document_service.create_document(
             task_type=req.task_type,
@@ -146,6 +155,11 @@ async def process(req: ProcessRequest, _user: dict = Depends(business_write)):
         raise HTTPException(status_code=422, detail=f"无效的任务类型: {req.task_type}")
 
     # 只建记录，worker 协程会自己认领处理（见 document_service.worker）
+    ip = request.client.host if request.client else ""
+    operation_log_service.record_user(
+        _user, "create_document", target=doc.id,
+        detail=f"task_type={req.task_type}", ip=ip,
+    )
     return ProcessResponse(
         id=doc.id,
         status=doc.status.value,
@@ -174,7 +188,11 @@ async def get_document(doc_id: str, _user: dict = Depends(any_role)):
     )
 
 @router.post("/documents/{doc_id}/retry", response_model=ProcessResponse)
+<<<<<<< HEAD
 async def retry(doc_id: str, _user: dict = Depends(business_write)):
+=======
+async def retry(doc_id: str, request: Request, _user: dict = Depends(sysadmin_only)):
+>>>>>>> feat/audit-log
     """重试处理失败的文档（只允许失败状态的文档重试）。"""
     try:
         doc = await document_service.retry_document(doc_id)
@@ -183,6 +201,8 @@ async def retry(doc_id: str, _user: dict = Depends(business_write)):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    ip = request.client.host if request.client else ""
+    operation_log_service.record_user(_user, "retry_document", target=doc_id, ip=ip)
     return ProcessResponse(
         id=doc.id,
         status=doc.status.value,
@@ -236,10 +256,16 @@ async def download(doc_id: str, format: str = Query("md"), _user: dict = Depends
 
 
 @router.delete("/documents/{doc_id}", status_code=204)
+<<<<<<< HEAD
 async def delete(doc_id: str, _user: dict = Depends(business_write)):
+=======
+async def delete(doc_id: str, request: Request, _user: dict = Depends(sysadmin_only)):
+>>>>>>> feat/audit-log
     try:
         await document_service.delete_document(doc_id)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    ip = request.client.host if request.client else ""
+    operation_log_service.record_user(_user, "delete_document", target=doc_id, ip=ip)
 
 

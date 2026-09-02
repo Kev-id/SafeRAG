@@ -4,7 +4,7 @@ POST /api/v1/auth/login   登录，返回 JWT access_token
 GET  /api/v1/auth/me      返回当前登录用户信息（需 Bearer token）
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from backend.services import auth_service
@@ -18,9 +18,10 @@ class LoginRequest(BaseModel):
 
 
 @router.post("/login", response_model=auth_service.LoginResponse, tags=["auth"])
-async def login(req: LoginRequest):
+async def login(req: LoginRequest, request: Request):
     """登录，凭用户名/密码换发 JWT。"""
-    return auth_service.login(req.username, req.password)
+    ip = request.client.host if request.client else ""
+    return auth_service.login(req.username, req.password, ip=ip)
 
 
 @router.get("/me", tags=["auth"])

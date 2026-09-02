@@ -7,11 +7,11 @@ DELETE /api/v1/files/{filename}    删除知识库文件
 """
 
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from pydantic import BaseModel
 
 
-from backend.services import knowledge_service
+from backend.services import knowledge_service, operation_log_service
 from backend.repositories import kb_file_repo
 from backend.services.auth_service import any_role, kb_upload, secadmin_only
 
@@ -52,6 +52,7 @@ class SensitiveUpdate(BaseModel):
 
 @router.post("/files", response_model=KbUploadResponse, status_code=201)
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     file_type: Optional[str] = Form(None),
     region: Optional[str] = Form(None),
@@ -61,11 +62,17 @@ async def upload_file(
     """上传文件，登记到 SQLite 并写入 ChromaDB 索引。region/city 由前端传入。"""
     content = await file.read()
     try:
-        return await knowledge_service.upload_kb_file(
+        result = await knowledge_service.upload_kb_file(
             file.filename or "", content, file_type=file_type, region=region, city=city
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    ip = request.client.host if request.client else ""
+    operation_log_service.record_user(
+        _user, "upload_kb_file", target=file.filename or "",
+        detail=f"file_type={file_type or ''}/size={len(content)}B", ip=ip,
+    )
+    return result
 
 
 @router.get("/files", response_model=list[KbFileItem])
@@ -86,12 +93,15 @@ async def get_file(filename: str, _user: dict = Depends(any_role)):
 
 
 @router.delete("/files/{filename}", response_model=KbUploadResponse)
-async def delete_file(filename: str, _user: dict = Depends(secadmin_only)):
+async def delete_file(filename: str, request: Request, _user: dict = Depends(secadmin_only)):
     """删除知识库文件：索引 + 磁盘 + 登记册。"""
     try:
-        return await knowledge_service.delete_kb_file(filename)
+        result = await knowledge_service.delete_kb_file(filename)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    ip = request.client.host if request.client else ""
+    operation_log_service.record_user(_user, "delete_kb_file", target=filename, ip=ip)
+    return result
 
 
 @router.patch("/files/{filename}/sensitive", response_model=KbUploadResponse)
