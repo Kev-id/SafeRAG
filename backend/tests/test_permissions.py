@@ -5,10 +5,10 @@
   perm_user_sys_sec_aud  登录即可读
   perm_user_sys_sec      业务操作（建/删报告、对话、知识库上传）
   perm_sys_sec_aud       后台监控
-  perm_sec               安全保密员专属（知识库删除、敏感标记）
+  perm_sec               安全保密员专属（敏感标记）
   perm_sys               系统管理员专属（用户管理）
 验证权限矩阵边界：普通用户禁监控/禁用户管理、audadmin 只读、
-secadmin 专属删除/敏感标记。
+secadmin 专属敏感标记（知识库删除已开放给 user/sysadmin/secadmin）。
 """
 import pytest
 from fastapi import HTTPException
@@ -50,8 +50,14 @@ def test_user_denied_user_management():
     assert_denied(asvc.perm_sys, "user")
 
 
-def test_user_denied_kb_delete():
+def test_user_denied_sensitive_marking():
+    """敏感标记仍为 secadmin 专属，user 不可用。"""
     assert_denied(asvc.perm_sec, "user")
+
+
+def test_user_allowed_kb_delete():
+    """知识库文件删除已开放给 user（通过 perm_user_sys_sec）。"""
+    assert_ok(asvc.perm_user_sys_sec, "user")
 
 
 # ---- audadmin：只读，禁业务写、禁知识库写 ----
@@ -83,11 +89,16 @@ def test_secadmin_denied_user_management():
     assert_denied(asvc.perm_sys, "secadmin")
 
 
-# ---- sysadmin：用户管理放行，但同样不可删除知识库文件（权限分离） ----
+# ---- sysadmin：用户管理放行，删除知识库文件已开放，敏感标记仍不可用 ----
 def test_sysadmin_allowed_user_management():
     assert_ok(asvc.perm_sys, "sysadmin")
 
 
-def test_sysadmin_denied_kb_delete():
-    # 三权分立：删除知识库文件是 secadmin 专属，sysadmin 亦不可
+def test_sysadmin_allowed_kb_delete():
+    """知识库文件删除已开放给 sysadmin（通过 perm_user_sys_sec）。"""
+    assert_ok(asvc.perm_user_sys_sec, "sysadmin")
+
+
+def test_sysadmin_denied_sensitive_marking():
+    """敏感标记仍为 secadmin 专属，sysadmin 不可用。"""
     assert_denied(asvc.perm_sec, "sysadmin")
