@@ -1,7 +1,7 @@
 """认证服务：登录签发 JWT、取当前用户、角色校验依赖。
 
-供各业务路由声明依赖使用：
-  from backend.services.auth_service import any_role, sysadmin_only, secadmin_only, ops_and_sec
+供各业务路由声明依赖使用，名称直接枚举放行的角色（user/sys/sec/aud）：
+  from backend.services.auth_service import perm_user_sys_sec_aud, perm_user_sys_sec, perm_sys_sec_aud, perm_sec, perm_sys
 """
 
 from fastapi import Depends, HTTPException, Request
@@ -93,18 +93,14 @@ def require_roles(*allowed_roles: str):
     return dependency
 
 
-# 预定义角色依赖（按确认的权限矩阵）
+# 预定义角色依赖（按权限矩阵：命名直接枚举放行的角色 user/sys/sec/aud）
 #
 #   user       普通用户：业务全功能（读写），禁监控/用户管理/系统配置/审计
 #   sysadmin   系统管理员：业务 + 用户管理 + 系统配置 + 后台监控
 #   secadmin   安全保密员：业务（含知识库写） + 后台监控；专属=知识库文件删除
 #   audadmin   审计员：全局只读（审计日志未来接入）
-any_role = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC, ROLE_AUD)   # 登录即可读
-business_write = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC)       # 业务写（建/删报告、对话）
-kb_upload = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC)            # 知识库上传
-kb_delete = require_roles(ROLE_SEC)                                 # 安全保密员专属：知识库文件删除
-monitor_view = require_roles(ROLE_SYS, ROLE_SEC, ROLE_AUD)          # 后台监控（普通用户不可见）
-user_admin = require_roles(ROLE_SYS)                                # 系统管理员专属：用户管理
-sysadmin_only = require_roles(ROLE_SYS)                             # 系统管理员专属（别名）
-secadmin_only = require_roles(ROLE_SEC)                             # 安全保密员专属（别名）
-ops_and_sec = require_roles(ROLE_SYS, ROLE_SEC)                     # 兼容保留：sysadmin+secadmin
+perm_user_sys_sec_aud = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC, ROLE_AUD)  # 登录即可读
+perm_user_sys_sec     = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC)            # 业务操作（建/删报告、对话、知识库上传）
+perm_sys_sec_aud      = require_roles(ROLE_SYS, ROLE_SEC, ROLE_AUD)             # 后台监控
+perm_sec              = require_roles(ROLE_SEC)                                 # 安全保密员专属（知识库删除、敏感标记）
+perm_sys              = require_roles(ROLE_SYS)                                 # 系统管理员专属（用户管理）

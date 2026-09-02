@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.services.template_service import list_templates, get_template
-from backend.services.auth_service import any_role
+from backend.services.auth_service import perm_user_sys_sec_aud
 
 router = APIRouter(prefix="/api/v1")
 
@@ -20,7 +20,7 @@ class TaskListResponse(BaseModel):
 
 
 @router.get("/tasks", response_model=TaskListResponse)
-async def list_tasks(_user: dict = Depends(any_role)):
+async def list_tasks(_user: dict = Depends(perm_user_sys_sec_aud)):
     """列出所有任务类型（只暴露 key/name/description，不暴露 prompt）。"""
     return TaskListResponse(
         tasks=[
@@ -30,7 +30,7 @@ async def list_tasks(_user: dict = Depends(any_role)):
     )
 
 @router.get("/tasks/{task_key}", response_model=TaskInfo)
-async def get_task(task_key: str, _user: dict = Depends(any_role)):
+async def get_task(task_key: str, _user: dict = Depends(perm_user_sys_sec_aud)):
     """列出指定key任务的信息"""
     try:
         t=get_template(task_key)

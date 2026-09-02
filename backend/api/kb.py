@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from backend.services import knowledge_service
 from backend.repositories import kb_file_repo
-from backend.services.auth_service import any_role, kb_upload, secadmin_only
+from backend.services.auth_service import perm_user_sys_sec_aud, perm_user_sys_sec, perm_sec
 
 router = APIRouter(prefix="/api/v1")
 
@@ -56,7 +56,7 @@ async def upload_file(
     file_type: Optional[str] = Form(None),
     region: Optional[str] = Form(None),
     city: Optional[str] = Form(None),
-    _user: dict = Depends(kb_upload),
+    _user: dict = Depends(perm_user_sys_sec),
     ):
     """上传文件，登记到 SQLite 并写入 ChromaDB 索引。region/city 由前端传入。"""
     content = await file.read()
@@ -69,14 +69,14 @@ async def upload_file(
 
 
 @router.get("/files", response_model=list[KbFileItem])
-async def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None, _user: dict = Depends(any_role)):
+async def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None, _user: dict = Depends(perm_user_sys_sec_aud)):
     """列出知识库文件（读登记册，权威源）。"""
     items = await knowledge_service.list_kb_files(file_type=file_type, status=status, keyword=keyword, region=region)
     return [KbFileItem(**item) for item in items]
 
 
 @router.get("/files/{filename}", response_model=KbFileDetail)
-async def get_file(filename: str, _user: dict = Depends(any_role)):
+async def get_file(filename: str, _user: dict = Depends(perm_user_sys_sec_aud)):
     """获取单个文件详情（元数据 + 正文）。"""
     try:
         item = await knowledge_service.get_kb_file(filename)
@@ -86,7 +86,7 @@ async def get_file(filename: str, _user: dict = Depends(any_role)):
 
 
 @router.delete("/files/{filename}", response_model=KbUploadResponse)
-async def delete_file(filename: str, _user: dict = Depends(secadmin_only)):
+async def delete_file(filename: str, _user: dict = Depends(perm_sec)):
     """删除知识库文件：索引 + 磁盘 + 登记册。"""
     try:
         return await knowledge_service.delete_kb_file(filename)
@@ -95,7 +95,7 @@ async def delete_file(filename: str, _user: dict = Depends(secadmin_only)):
 
 
 @router.patch("/files/{filename}/sensitive", response_model=KbUploadResponse)
-async def set_sensitive(filename: str, body: SensitiveUpdate, _user: dict = Depends(secadmin_only)):
+async def set_sensitive(filename: str, body: SensitiveUpdate, _user: dict = Depends(perm_sec)):
     """标记/撤销敏感文件（仅安全保密员）。"""
     item = kb_file_repo.get(filename)
     if item is None:
@@ -108,6 +108,6 @@ async def set_sensitive(filename: str, body: SensitiveUpdate, _user: dict = Depe
 
 
 @router.get("/kb/stats", response_model=KbStatsResponse)
-async def get_kb_stats(_user: dict = Depends(any_role)):
+async def get_kb_stats(_user: dict = Depends(perm_user_sys_sec_aud)):
     """获取知识库统计信息"""
     return knowledge_service.get_stats()

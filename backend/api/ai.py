@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from backend.services import ai_service
-from backend.services.auth_service import any_role
+from backend.services.auth_service import perm_user_sys_sec_aud
 
 router = APIRouter(prefix="/api/v1")
 
@@ -20,5 +20,5 @@ class AIStatusResponse(BaseModel):
 
 
 @router.get("/ai/status", response_model=AIStatusResponse)
-async def ai_status(_user: dict = Depends(any_role)):
+async def ai_status(_user: dict = Depends(perm_user_sys_sec_aud)):
     return await ai_service.get_status()

@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.repositories import user_repo
-from backend.services.auth_service import get_current_user, user_admin
+from backend.services.auth_service import get_current_user, perm_sys
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 
@@ -35,12 +35,12 @@ class ResetPassword(BaseModel):
 
 
 @router.get("")
-def list_users(_admin: dict = Depends(user_admin)):
+def list_users(_admin: dict = Depends(perm_sys)):
     return user_repo.list_users()
 
 
 @router.post("")
-def create_user(body: UserCreate, admin: dict = Depends(user_admin)):
+def create_user(body: UserCreate, admin: dict = Depends(perm_sys)):
     if body.role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"无效角色：{body.role}")
     user = user_repo.create_user(
@@ -55,7 +55,7 @@ def create_user(body: UserCreate, admin: dict = Depends(user_admin)):
 
 
 @router.patch("/{user_id}")
-def update_user(user_id: int, body: UserUpdate, admin: dict = Depends(user_admin)):
+def update_user(user_id: int, body: UserUpdate, admin: dict = Depends(perm_sys)):
     if body.role is not None and body.role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail=f"无效角色：{body.role}")
     # 防止系统管理员停用/改角色自己造成锁死
@@ -73,7 +73,7 @@ def update_user(user_id: int, body: UserUpdate, admin: dict = Depends(user_admin
 
 
 @router.post("/{user_id}/reset-password")
-def reset_password(user_id: int, body: ResetPassword, _admin: dict = Depends(user_admin)):
+def reset_password(user_id: int, body: ResetPassword, _admin: dict = Depends(perm_sys)):
     if not user_repo.reset_password(user_id, body.new_password):
         raise HTTPException(status_code=404, detail="用户不存在")
     return {"ok": True, "message": "密码已重置"}
