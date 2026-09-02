@@ -7,6 +7,8 @@ POST /api/v1/chat/completions
 """
 
 import asyncio
+import json
+import time
 from typing import List, Optional, Union
 
 from fastapi import APIRouter, HTTPException
@@ -17,6 +19,34 @@ from backend.core import qwen_client
 from backend.services import chat_service
 
 router = APIRouter(prefix="/api/v1")
+
+
+def _materials_chunk(sources: list[str]) -> str:
+    """构造最后一条带 rag_materials 的 OpenAI 风格 chunk（delta 为空，材料不进正文）。
+
+    前端读完即可用 sources（每条 "[编号] 来源 文本…"）做折叠展示：缩略显示来源，
+    点开看全文。取到内容后自行渲染，不要并进 assistant 消息存历史。
+    """
+    payload = {
+        "id": "chatcmpl-saferag-" + str(int(time.time() * 1000)),
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": qwen_client.QWEN_CHAT_MODEL,
+        "choices": [{"index": 0, "delta": {"content": ""}, "finish_reason": None}],
+        "rag_materials": sources,
+    }
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def _stream_with_materials(inner, sources: list[str] | None):
+    """在 [DONE] 前追加一条带 rag_materials 的 chunk；无材料则原样透传。"""
+    async for line in inner:
+        if line.strip() == "data: [DONE]":
+            if sources:
+                yield _materials_chunk(sources)
+            yield line
+            return
+        yield line
 
 
 class ImageUrl(BaseModel):
@@ -59,7 +89,7 @@ async def chat_completions(req: ChatRequest):
     try:
         # build（检索+注入）在流开始前完成：抛错能正常转 HTTP 错误，
         # 不会漏成"200 + 残缺 SSE body"
-        constructed, _sources = await asyncio.to_thread(
+        constructed, sources = await asyncio.to_thread(
             chat_service.build_chat_messages,
             messages, req.enable_rag,
             req.provinces, req.cities, req.file_types
@@ -67,9 +97,15 @@ async def chat_completions(req: ChatRequest):
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
-    # 只有 Qwen 流式透传进生成器；连接失败会在这抛 QwenError → 500
-    return StreamingResponse(
+    # RAG 开启且检索到材料 → 流末尾单独下发 rag_materials（不进 assistant 正文）
+    stream = _stream_with_materials(
         qwen_client.chat_stream(constructed),
+        sources if (req.enable_rag and sources) else None,
+    )
+
+    # 连接失败会在这抛 QwenError → 500
+    return StreamingResponse(
+        stream,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache"},
     )
