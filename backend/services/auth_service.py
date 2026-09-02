@@ -106,7 +106,7 @@ def require_roles(*allowed_roles: str):
 #   user       普通用户：业务全功能（读写），禁监控/用户管理/系统配置/审计
 #   sysadmin   系统管理员：业务 + 用户管理 + 系统配置 + 后台监控
 #   secadmin   安全保密员：业务（含知识库写） + 后台监控；专属=知识库文件删除
-#   audadmin   审计员：全局只读（审计日志未来接入）
+#   audadmin   审计员：全局只读（审计日志专查）
 any_role = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC, ROLE_AUD)   # 登录即可读
 business_write = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC)       # 业务写（建/删报告、对话）
 kb_upload = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC)            # 知识库上传
@@ -116,3 +116,4 @@ user_admin = require_roles(ROLE_SYS)                                # 系统管�
 sysadmin_only = require_roles(ROLE_SYS)                             # 系统管理员专属（别名）
 secadmin_only = require_roles(ROLE_SEC)                             # 安全保密员专属（别名）
 ops_and_sec = require_roles(ROLE_SYS, ROLE_SEC)                     # 兼容保留：sysadmin+secadmin
+audadmin_only = require_roles(ROLE_AUD)                             # 审计员专属：审计日志专查
