@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from backend.core import security
 from backend.repositories import user_repo
+from backend.services import operation_log_service
 
 # 角色常量
 ROLE_USER = "user"       # 普通用户
@@ -29,14 +30,21 @@ class LoginResponse(BaseModel):
     full_name: str
 
 
-def login(username: str, password: str) -> LoginResponse:
-    """校验用户名密码，成功返回带 JWT 的响应；失败抛 401。"""
+def login(username: str, password: str, ip: str = "") -> LoginResponse:
+    """校验用户名密码，成功返回带 JWT 的响应；失败抛 401。登录成败均写入操作日志。"""
     user = user_repo.get_user_by_username(username)
     if not user or not user["is_active"]:
+        operation_log_service.record(
+            username, "", "login", detail="用户名或密码错误", ip=ip, success=False
+        )
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     if not security.verify_password(password, user["password_hash"]):
+        operation_log_service.record(
+            username, user["role"], "login", detail="用户名或密码错误", ip=ip, success=False
+        )
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     token = security.create_access_token(user["username"], user["role"])
+    operation_log_service.record(user["username"], user["role"], "login", ip=ip, success=True)
     return LoginResponse(
         access_token=token,
         username=user["username"],
@@ -98,9 +106,10 @@ def require_roles(*allowed_roles: str):
 #   user       普通用户：业务全功能（读写），禁监控/用户管理/系统配置/审计
 #   sysadmin   系统管理员：业务 + 用户管理 + 系统配置 + 后台监控
 #   secadmin   安全保密员：业务（含知识库写） + 后台监控；专属=知识库文件删除
-#   audadmin   审计员：全局只读（审计日志未来接入）
+#   audadmin   审计员：全局只读（审计日志专查）
 perm_user_sys_sec_aud = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC, ROLE_AUD)  # 登录即可读
 perm_user_sys_sec     = require_roles(ROLE_USER, ROLE_SYS, ROLE_SEC)            # 业务操作（建/删报告、对话、知识库上传）
 perm_sys_sec_aud      = require_roles(ROLE_SYS, ROLE_SEC, ROLE_AUD)             # 后台监控
 perm_sec              = require_roles(ROLE_SEC)                                 # 安全保密员专属（知识库删除、敏感标记）
 perm_sys              = require_roles(ROLE_SYS)                                 # 系统管理员专属（用户管理）
+perm_aud              = require_roles(ROLE_AUD)                                 # 审计员专属：审计日志专查

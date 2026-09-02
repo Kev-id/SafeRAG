@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-09-02
+
+- **三权分立认证 + 操作日志审计**：sysadmin/secadmin/audadmin 三员，登录成败、报告、知识库（含敏感标记）、用户管理的写操作全部落 `operation_log`，仅 audadmin 可查（`audadmin_only`）
+- 决策：授权以 DB 角色为准，不看 JWT 里的 role 声明——停用/改角色立即生效
+- 决策：审计写入失败绝不上抛（`record` 内部吞异常只记 logger），审计把业务打翻是生产事故
+
+- **权限矩阵重排**：新增普通用户 `user` 角色，依赖按功能命名（business_write / user_admin / monitor_view / kb_upload / kb_delete）
+- 坑：audit-log 合进 sanyuan 后重构删了 `audadmin_only`，audit 路由 ImportError 应用起不来——按 sysadmin_only 同款别名补回才恢复
+- 教训：改权限名后必须全局搜 `from ...auth_service import` 核对残留引用，别等 import 报错
+
+- **health.py 启动即崩**：`Depends(any_role)` 用了未导入的符号，模块 import 时 NameError，整个应用起不来
+- 教训：验证应用能启动，先 `python -c "import backend.main"` 冒烟，别等运行时
+
+- **误提交 + 分支漂移**：操作日志被误提交到 sanyuan，用 临时分支 feat/audit-log + reset 挪走再合并回来；多会话并行时分支会来回跳
+- 教训：改文件前先 `git branch --show-current` 确认自己在哪，避免改错分支
+
+- **环境坑**：requirements 锁了 PyJWT/jieba，但本机 Anaconda 只装了 PyJWT 缺 jieba，整包启动无法在本地验证
+- 教训：锁版本 ≠ 本机已装，提交流前先在目标环境 `pip install -r backend/requirements.txt`
+
 ## 2026-08-12
 
 - **SQLite 替代纯文件存储**：元数据和原文进 SQLite，报告 .md 留在文件系统（方便下载）
