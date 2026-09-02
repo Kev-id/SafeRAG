@@ -12,13 +12,8 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from backend.core import doc_exporter
-<<<<<<< HEAD
-from backend.services import document_service
-from backend.services.auth_service import any_role, business_write
-=======
 from backend.services import document_service, operation_log_service
-from backend.services.auth_service import any_role, sysadmin_only
->>>>>>> feat/audit-log
+from backend.services.auth_service import any_role, sysadmin_only, business_write
 from backend.repositories.document_repo import report_path, DocStatus
 
 router = APIRouter(prefix="/api/v1")
@@ -135,11 +130,7 @@ async def list_documents(
     )
 
 @router.post("/documents/process", response_model=ProcessResponse, status_code=201)
-<<<<<<< HEAD
-async def process(req: ProcessRequest, _user: dict = Depends(business_write)):
-=======
-async def process(req: ProcessRequest, request: Request, _user: dict = Depends(sysadmin_only)):
->>>>>>> feat/audit-log
+async def process(req: ProcessRequest, request: Request, _user: dict = Depends(business_write)):
     try:
         doc = await document_service.create_document(
             task_type=req.task_type,
@@ -188,11 +179,7 @@ async def get_document(doc_id: str, _user: dict = Depends(any_role)):
     )
 
 @router.post("/documents/{doc_id}/retry", response_model=ProcessResponse)
-<<<<<<< HEAD
-async def retry(doc_id: str, _user: dict = Depends(business_write)):
-=======
-async def retry(doc_id: str, request: Request, _user: dict = Depends(sysadmin_only)):
->>>>>>> feat/audit-log
+async def retry(doc_id: str, request: Request, _user: dict = Depends(business_write)):
     """重试处理失败的文档（只允许失败状态的文档重试）。"""
     try:
         doc = await document_service.retry_document(doc_id)
@@ -256,11 +243,7 @@ async def download(doc_id: str, format: str = Query("md"), _user: dict = Depends
 
 
 @router.delete("/documents/{doc_id}", status_code=204)
-<<<<<<< HEAD
-async def delete(doc_id: str, _user: dict = Depends(business_write)):
-=======
-async def delete(doc_id: str, request: Request, _user: dict = Depends(sysadmin_only)):
->>>>>>> feat/audit-log
+async def delete(doc_id: str, request: Request, _user: dict = Depends(business_write)):
     try:
         await document_service.delete_document(doc_id)
     except FileNotFoundError as e:
