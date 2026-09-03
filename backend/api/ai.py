@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from backend.services import ai_service
 from backend.services.auth_service import perm_user_sys_sec_aud
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", tags=["ai"])
 
 
 class AIStatusResponse(BaseModel):

@@ -16,7 +16,7 @@ from backend.services import document_service, operation_log_service
 from backend.services.auth_service import perm_user_sys_sec_aud, perm_user_sys_sec
 from backend.repositories.document_repo import report_path, DocStatus
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", tags=["documents"])
 
 
 # ---------------------------------------------------------------------------

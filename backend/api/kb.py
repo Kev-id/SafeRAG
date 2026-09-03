@@ -15,7 +15,7 @@ from backend.services import knowledge_service, operation_log_service
 from backend.repositories import kb_file_repo
 from backend.services.auth_service import perm_user_sys_sec_aud, perm_user_sys_sec, perm_sec
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", tags=["knowledge"])
 
 
 class KbUploadResponse(BaseModel):
