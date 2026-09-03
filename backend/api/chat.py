@@ -19,7 +19,7 @@ from backend.core import qwen_client
 from backend.services import chat_service
 from backend.services.auth_service import perm_user_sys_sec
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", tags=["chat"])
 
 
 def _materials_chunk(sources: list[str]) -> str:

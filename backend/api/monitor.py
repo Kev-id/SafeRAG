@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from backend.services import monitor_service
 from backend.services.auth_service import perm_sys_sec_aud
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", tags=["monitor"])
 
 
 class CPUInfo(BaseModel):

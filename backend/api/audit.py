@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from backend.services import operation_log_service
 from backend.services.auth_service import perm_aud
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", tags=["audit"])
 
 
 class OperationLogItem(BaseModel):

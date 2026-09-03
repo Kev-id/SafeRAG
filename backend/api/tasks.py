@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from backend.services.template_service import list_templates, get_template
 from backend.services.auth_service import perm_user_sys_sec_aud
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1", tags=["tasks"])
 
 
 class TaskInfo(BaseModel):
