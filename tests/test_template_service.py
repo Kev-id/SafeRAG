@@ -16,7 +16,7 @@ def test_get_template_returns_correct_template():
     """正确的 key 返回正确的模板。"""
     t = get_template("accident_analysis")
     assert t.name == "事故分析报告"
-    assert "事故概述" in t.user_template
+    assert "【输出格式要求】" in t.user_template
 
 
 def test_get_template_unknown_key_raises():

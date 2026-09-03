@@ -35,7 +35,7 @@ def _legal_text():
 
 
 def test_parse_legal_txt_builds_tree():
-    tree, md5 = parse_to_tree(_legal_text(), filename="防震减灾法.txt", file_type="法律")
+    tree, md5 = parse_to_tree(_legal_text(), filename="防震减灾法.txt", file_type="法律", region="")
 
     assert tree["doc"]["title"] == "中华人民共和国防震减灾法"
     assert tree["doc"]["meta"].startswith("（1997年12月29日")
@@ -46,7 +46,7 @@ def test_parse_legal_txt_builds_tree():
 
 
 def test_iter_legal_chunks_keeps_article_metadata():
-    tree, _ = parse_to_tree(_legal_text(), filename="防震减灾法.txt", file_type="法律")
+    tree, _ = parse_to_tree(_legal_text(), filename="防震减灾法.txt", file_type="法律", region="")
     chunks, metas = iter_legal_chunks(tree)
 
     assert len(chunks) == 2
@@ -65,7 +65,7 @@ def test_full_width_space_in_toc_is_normalized():
 第一条　为了防御和减轻地震灾害，保护人民生命和财产安全，促进经济社会的可持续发展，制定本法。
 第二条　适用本法。
 """.encode("utf-8")
-    tree, _ = parse_to_tree(text, filename="法.txt", file_type="法律")
+    tree, _ = parse_to_tree(text, filename="法.txt", file_type="法律", region="")
     assert tree["doc"]["meta"].startswith("（1997年")
     articles = [n["no"] for ch in tree["tree"] for n in ch.get("children", []) if n.get("level") == "article"]
     assert "第一条" in articles and "第二条" in articles
@@ -74,7 +74,7 @@ def test_full_width_space_in_toc_is_normalized():
 def test_plain_text_wrapped_into_minimal_tree():
     """非法规文本包成最简文档树（单根 article），入库只走这一条路径。"""
     plain = "这是一段普通文本，没有任何章节条结构。\n另一段普通文本。\n".encode("utf-8")
-    tree, _ = parse_to_tree(plain, filename="notes.txt", file_type="说明")
+    tree, _ = parse_to_tree(plain, filename="notes.txt", file_type="说明", region="广东省")
 
     assert tree["toc"] == []
     assert len(tree["tree"]) == 1
@@ -86,13 +86,14 @@ def test_plain_text_wrapped_into_minimal_tree():
     assert len(chunks) == 1
     assert metas[0]["doc_title"] == "" and metas[0]["article_no"] == ""
     assert metas[0]["file_type"] == "说明"
+    assert metas[0]["region"] == "广东省"
 
 
 def test_parse_to_tree_rejects_unsupported_ext():
     """未知后缀抛 ValueError；docx 已支持（走 python-docx，非 NotImplementedError）。"""
     import pytest
     with pytest.raises(ValueError):
-        parse_to_tree(b"whatever", filename="x.csv", file_type="法律")
+        parse_to_tree(b"whatever", filename="x.csv", file_type="法律", region="")
 
 
 def test_pdf_scan_rejected():
@@ -110,7 +111,7 @@ def test_pdf_scan_rejected():
     except ImportError:
         pytest.skip("reportlab 未安装")
     with pytest.raises(ValueError):
-        parse_to_tree(pdf_bytes, filename="scan.pdf", file_type="法律")
+        parse_to_tree(pdf_bytes, filename="scan.pdf", file_type="法律", region="")
 
 
 def test_docx_parsed_to_tree():
@@ -132,7 +133,7 @@ def test_docx_parsed_to_tree():
     buf = io.BytesIO()
     doc.save(buf)
 
-    tree, md5 = parse_to_tree(buf.getvalue(), filename="法规.docx", file_type="法律")
+    tree, md5 = parse_to_tree(buf.getvalue(), filename="法规.docx", file_type="法律", region="")
     assert tree["doc"]["title"] == "中华人民共和国防震减灾法"
     assert len(tree["tree"]) >= 1
     assert isinstance(md5, str) and len(md5) == 32
@@ -141,7 +142,7 @@ def test_docx_parsed_to_tree():
 def test_kb_tree_repo_roundtrip_is_faithful():
     """活合同：树落盘 SQLite 再读回，切块结果与原树逐字段一致。"""
     init_db()
-    tree, md5 = parse_to_tree(_legal_text(), filename="防震减灾法.txt", file_type="法律")
+    tree, md5 = parse_to_tree(_legal_text(), filename="防震减灾法.txt", file_type="法律", region="")
     kb_tree_repo.save("防震减灾法.txt", tree, md5)
 
     reloaded = kb_tree_repo.load("防震减灾法.txt")
