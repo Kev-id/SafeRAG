@@ -222,8 +222,9 @@ void Qwen3_5::init_by_names() {
   auto num_nets = bmrt_get_network_number(p_bmrt);
   bmrt_get_network_names(p_bmrt, &net_names);
   net_greedy_head = nullptr;
-  // 4 nets are embed, lm_head, embedding_cache, vit
-  auto num_blocks = num_nets - 4;
+  // 非 block 网络：多模态有 embed/lm_head/embedding_cache/vit 共 4 个，
+  // 纯文本无 vit 只有 3 个 —— 决定 block 数时按 vit 存在性调整
+  auto num_blocks = num_nets - (net_vit ? 4 : 3);
   if (is_exist("greedy_head", net_names, num_nets)) {
     net_greedy_head = bmrt_get_network_info(p_bmrt, "greedy_head");
     num_blocks--; // greedy_head is not a block
@@ -304,9 +305,17 @@ void Qwen3_5::init_by_names() {
   MAX_INPUT_LENGTH = net_embed->stages[0].input_shapes[0].dims[1];
   HIDDEN_SIZE = net_lm->stages[0].input_shapes[0].dims[1];
   SEQLEN = net_blocks_cache[FA_INTERVAL - 1]->stages[0].input_shapes[3].dims[1];
-  MAX_PATCHES = net_vit->stages[0].input_shapes[0].dims[0];
-  MAX_PIXELS = MAX_PATCHES * 16 * 16;
-  VIT_DIMS = net_vit->stages[0].input_shapes[0].dims[1];
+  if (net_vit) {
+    // 多模态 bmodel：有 vit 网络 → 初始化视觉维度
+    MAX_PATCHES = net_vit->stages[0].input_shapes[0].dims[0];
+    MAX_PIXELS = MAX_PATCHES * 16 * 16;
+    VIT_DIMS = net_vit->stages[0].input_shapes[0].dims[1];
+  } else {
+    // 纯文本 bmodel：无 vit → 视觉维度置 0，不碰空指针
+    MAX_PATCHES = 0;
+    MAX_PIXELS = 0;
+    VIT_DIMS = 0;
+  }
   KV_BYTES = bm_mem_get_device_size(
       net_blocks_cache[FA_INTERVAL - 1]->stages[0].output_mems[1]);
 
@@ -427,6 +436,10 @@ void Qwen3_5::forward_vit(ArrayFloat const &pixel_values,
                           ArrayInt const &position_ids, ArrayInt const &pos_idx,
                           ArrayFloat const &pos_weight,
                           ArrayInt const &grid_thw, int vit_offset) {
+  if (!net_vit) {
+    // 纯文本 bmodel 无视觉网络：不应被调用，安全空跑返回
+    return;
+  }
   auto p_grid_thw = grid_thw.request();
   auto p_thw = static_cast<int *>(p_grid_thw.ptr);
   int t = p_thw[0];
