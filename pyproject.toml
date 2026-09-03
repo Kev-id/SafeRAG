@@ -2,7 +2,7 @@
 # 本文件只放工具（pytest / ruff）的配置。
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "backend/tests"]
 pythonpath = ["."]
 
 [tool.ruff]
