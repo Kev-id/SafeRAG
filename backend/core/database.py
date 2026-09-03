@@ -56,6 +56,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE documents ADD COLUMN cities TEXT NOT NULL DEFAULT ''")
         if "file_types" not in doc_cols:
             conn.execute("ALTER TABLE documents ADD COLUMN file_types TEXT NOT NULL DEFAULT ''")
+        if "region" not in doc_cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN region TEXT NOT NULL DEFAULT ''")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS kb_files (
                 filename     TEXT PRIMARY KEY,      -- 源文件名，就是知识库文档的 key
