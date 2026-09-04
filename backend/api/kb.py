@@ -28,6 +28,7 @@ class KbFileItem(BaseModel):
     md5: str | None = None
     file_type: str | None = None
     region: str | None = None
+    city: str | None = None
     size: int | None = None
     chunk_count: int = 0
     status: str = "building"
@@ -76,9 +77,9 @@ async def upload_file(
 
 
 @router.get("/files", response_model=list[KbFileItem])
-async def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None, _user: dict = Depends(perm_user_sys_sec_aud)):
+async def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None, city: Optional[str]=None, _user: dict = Depends(perm_user_sys_sec_aud)):
     """列出知识库文件（读登记册，权威源）。"""
-    items = await knowledge_service.list_kb_files(file_type=file_type, status=status, keyword=keyword, region=region)
+    items = await knowledge_service.list_kb_files(file_type=file_type, status=status, keyword=keyword, region=region, city=city)
     return [KbFileItem(**item) for item in items]
 
 

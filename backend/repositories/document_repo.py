@@ -132,16 +132,9 @@ def get(doc_id: str) -> Document | None:
     if row is None:
         return None
 
-    doc = Document(
-        id=row["id"],
-        output_filename=row["output_filename"],
-        requirements=row["requirements"],
-        original_text=row["original_text"],
-        task_type=row["task_type"],
-        status=DocStatus(row["status"]),
-        created_at=row["created_at"],
-        completed_at=row["completed_at"],
-    )
+    # _row_to_doc 带 region/provinces/cities/file_types：get 可能接着 update（重试），
+    # 漏读会让 filter 列被 update 冲空 → 重试后变全量检索（历史 bug）
+    doc = _row_to_doc(row)
 
     # 报告正文仍在文件中
     rpt = os.path.join(_doc_dir(doc_id), doc.report_filename)
@@ -225,18 +218,8 @@ def list_all(
 
     docs = []
     for row in rows:
-        doc = Document(
-            id=row["id"],
-            output_filename=row["output_filename"],
-            requirements=row["requirements"],
-            original_text=row["original_text"],
-            task_type=row["task_type"],
-            status=DocStatus(row["status"]),
-            created_at=row["created_at"],
-            completed_at=row["completed_at"],
-        )
         # 列表不读报告正文，前端点进去再请求详情
-        docs.append(doc)
+        docs.append(_row_to_doc(row))
     return docs
 
 

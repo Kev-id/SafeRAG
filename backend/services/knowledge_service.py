@@ -81,8 +81,11 @@ async def _process_kb_file(kf: dict) -> dict:
     except Exception as e:
         logger.exception("写入知识库索引失败: %s", safe_name)
         now = datetime.now(timezone.utc).isoformat()
+        # 关键：失败分支也必须带上 region/city —— upsert 的 ON CONFLICT 会把登记册
+        # 字段用传进来的值覆盖，漏带就会把省市冲空（历史 bug，见 build_knowledge_base.py）
         kb_file_repo.upsert({
-            "filename": safe_name, "file_type": file_type, "size": len(content),
+            "filename": safe_name, "file_type": file_type, "region": region,
+            "city": city, "size": len(content),
             "chunk_count": 0, "status": "failed", "message": str(e), "updated_at": now,
         })
         raise
@@ -115,9 +118,9 @@ async def delete_kb_file(filename: str) -> dict:
     return {"message": f"已删除并重建知识库: {safe_name}"}
 
 
-async def list_kb_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None) -> list[dict]:
+async def list_kb_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None, city: Optional[str]=None) -> list[dict]:
     """列出知识库文件（直接读登记册，不碰 ChromaDB）。"""
-    return kb_file_repo.list_files(file_type=file_type, status=status, keyword=keyword, region=region)
+    return kb_file_repo.list_files(file_type=file_type, status=status, keyword=keyword, region=region, city=city)
 
 
 async def get_kb_file(filename: str) -> dict:
