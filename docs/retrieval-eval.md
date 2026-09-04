@@ -1,7 +1,8 @@
 # 检索评估测试 — 使用文档
 
 对知识库检索打分的两段式工具：**先造查询集，再跑评估**。用于量化不同模型、不同筛选
-配置下，混合检索（BM25 + 向量 + RRF）能否把"问题对应的法规文件"捞回 top-k。
+配置下，混合检索（BM25 + 向量 + RRF，可选 bge-reranker 精排）能否把
+"问题对应的法规文件"捞回 top-k。
 
 ## 文件清单（scripts/）
 
@@ -56,6 +57,12 @@ python scripts\eval_retrieval.py --queries scripts\eval_results\eval_queries.aut
 
 :: 开地区+类型筛选
 python scripts\eval_retrieval.py --queries scripts\eval_results\eval_queries.auto.json --top-k 5 --model "模型A-筛选" --use-filter --out scripts\eval_results\eval_report.txt --model-dir D:\Users\Administrator\Desktop\models\bge-small-zh-onnx
+
+:: 加 reranker 精排（粗取 20 条精排后截 top-5）
+python scripts\eval_retrieval.py --queries scripts\eval_results\eval_queries.auto.json --top-k 5 --model "模型A+reranker" --rerank-pool 20 --out scripts\eval_results\eval_report.txt
+
+:: 显式关精排，跑无精排基线（同查询集对比）
+python scripts\eval_retrieval.py ... --model "模型A-基线" --no-rerank ...
 ```
 
 **参数表**
@@ -63,7 +70,7 @@ python scripts\eval_retrieval.py --queries scripts\eval_results\eval_queries.aut
 | 参数 | 含义 | 默认 |
 |---|---|---|
 | `--queries` | 查询集 JSON | `scripts/eval_results/eval_queries.auto.json` |
-| `--top-k` | 检索返回条数 | `5` |
+| `--top-k` | 检索最终返回条数 | `5` |
 | `--model` | 模型/配置名，写进报告头 | 未标注模型 |
 | `--use-filter` | 开地区+类型筛选；**不带=关** | 关 |
 | `--out` | .txt 输出路径（**追加**累积） | 不写文件 |
@@ -71,7 +78,14 @@ python scripts\eval_retrieval.py --queries scripts\eval_results\eval_queries.aut
 | `--sample N` | 随机抽 N 条（`--seed` 固定可复现） | 0=全量 |
 | `--seed` | 抽样种子 | 42 |
 | `--max N` | 取前 N 条 | 0=全量 |
-| `--model-dir` | embedding 模型目录（覆盖环境变量） | 环境变量 |
+| `--model-dir` | embedding 模型目录（覆盖环境变量，固定 bge-small） | 环境变量 |
+| `--rerank-pool N` | 精排粗取池大小（RERANKER_TOP_N），`>0` 才设 | 配置默认 20 |
+| `--rerank-model` | 覆盖 reranker 模型目录（与 `--model-dir` 对称） | 环境变量/配置默认 |
+| `--no-rerank` | 显式关精排（做无精排基线） | 按模型是否就位自适应 |
+
+开启精排的优先级：`--no-rerank` 清空路径 = 关；否则 `--rerank-model` 覆盖路径；
+精排**实际是否生效**按模型文件是否就位判定，报告头 `精排:` 行会如实标注
+（`开(pool=20)` / `关`），避免"以为开了其实没开"。
 
 **本机提速**：全量约 1550 条跑全要 40 分钟以上，`--sample 60` 约 6 分钟出趋势，
 `--split long`（40 条）约 4 分钟。进度每 50 条打一行。
@@ -87,8 +101,9 @@ python scripts\eval_retrieval.py --queries scripts\eval_results\eval_queries.aut
 ====================================================
 时间:    2026-08-31 15:01:45
 模型:    冒烟B-筛选开
+精排:    关
 地区筛选: 开
-top_k:   5 | 题数: 3
+top_k:   5 | 题数: 3 | 平均耗时: 812 ms/条
 ----------------------------------------------------
 任务类型           题数    hit@k  recall@k   prec@k     MRR
 全部              3   0.3333    0.3333   0.0667  0.3333
@@ -117,6 +132,14 @@ python scripts\eval_retrieval.py ... --model "模型A-筛选" --use-filter --out
 python scripts\eval_retrieval.py ... --model "模型B"     --out scripts\eval_results\eval_report.txt ...
 python scripts\eval_retrieval.py ... --model "模型B-筛选" --use-filter --out scripts\eval_results\eval_report.txt ...
 
+:: 精排对比：同一查询集跑"无精排基线 / 加 reranker"两轮，报告相邻直接看
+python scripts\eval_retrieval.py ... --model "模型A-基线"    --no-rerank ...
+python scripts\eval_retrieval.py ... --model "模型A-rerank" --rerank-pool 20 ...
+
+:: 横向扫精排池（pool 越大召回越全、耗时越高）
+python scripts\eval_retrieval.py ... --model "reranker-pool10" --rerank-pool 10 ...
+python scripts\eval_retrieval.py ... --model "reranker-pool30" --rerank-pool 30 ...
+
 :: 想重开报告：删掉 scripts\eval_results\eval_report.txt 再跑
 ```
 
@@ -125,4 +148,7 @@ python scripts\eval_retrieval.py ... --model "模型B-筛选" --use-filter --out
 - **慢**：全量约 1550 条单发很慢，用 `--sample` / `--split` 只测一部分。
 - **`--out` 是追加**：换模型跑都写同一个文件；要干净就删掉它。
 - **embedding 模型找不到**：`--model-dir` 指向本机 `...\models\bge-small-zh-onnx`。
+- **精排到底开没开**：报告头 `精排:` 行按**模型文件是否就位**如实标注（`开(pool=20)` / `关`），不传 `--no-rerank` 默认取 config 的 `RERANKER_MODEL_PATH`（本机为 `D:\...\bge-reranker-base`，开）。怕对比失真就显式 `--no-rerank` 跑基线。
+- **TPU 盒子上精排悄悄关掉**：config 默认 `RERANKER_MODEL_PATH` 是本机 D: 路径，盒子上不存在该文件 → `is_available()` 为假 → 静默走无精排。盒子上必须 `--rerank-model /data2/models/bge-reranker-base`（或设好盒子路径的 `RERANKER_MODEL_PATH` 环境变量）。
+- **平均耗时**：报告 `平均耗时: N ms/条` 含检索+精排全程（`time.perf_counter` 包住单条检索），比精排/池大小对耗时的影响就用它看。
 - **不要并行**：`--threads` 等并发手段已移除（BM25 吃 GIL，没用还慢）。
