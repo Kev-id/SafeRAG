@@ -130,7 +130,8 @@ def check_database_health(db_path=_DB_PATH) -> bool:
         conn.close()
         
         if result == "ok":
-            logging.info("Database health check passed.")
+            # DEBUG，不上 INFO：/health 被前端高频轮询，成功重复刷屏；异常仍 ERROR
+            logging.debug("Database health check passed.")
             return True
         else:
             logging.error(f"Integrity issue detected: {result}")
