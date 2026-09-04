@@ -23,14 +23,18 @@ import chromadb
 import jieba
 from rank_bm25 import BM25Okapi
 
-from backend.core.config import KB_COLLECTION, KB_DIR
+from backend.core.config import KB_COLLECTION, KB_DIR, RERANKER_TOP_N
 from backend.core.embedding_client import BgeEmbeddingFunction, tokenize_with_offsets
 from backend.core.kb_store import get_all_batch
+from backend.core import reranker as reranker_mod
 
 logger = logging.getLogger(__name__)
 
 # RRF 常数：决定 rank 的衰减速度，60 是业界常用值
 RRF_K = 60
+
+# 首次检索时打一条精排状态日志（只打一次，之后静默）
+_reranker_status_logged = False
 
 # BGE 位置编码上限：query 超此 token 数必须分段，否则 embedding 失效
 MAX_QUERY_TOKENS = 512
@@ -233,6 +237,11 @@ class Retriever:
           file_types →（地方法规）→ provinces → cities
         file_types=None（未传）时保持旧语义（国家法始终 + 省市地方法规）；
         file_types=[]（显式空）→ 什么都不检索。见 _candidate_ids 语义。
+
+        精排（可选）：RERANKER_MODEL_PATH 配置了 reranker 时，先按
+        RERANKER_TOP_N 粗取候选池，RRF 融合后交给 reranker cross-encoder
+        逐条精排（score 换成精排 logit），再截 top_k 返回；未配置或加载
+        失败 → 跳过精排，完全走原来的 BM25+向量+RRF。
         """
         self._ensure_loaded()
 
@@ -240,9 +249,20 @@ class Retriever:
         # 不检索）；只有三个都是 None（旧调用方没传）才退化全量。[] 是假值，故用 is not None
         candidate_ids = self._candidate_ids(provinces, cities, file_types) \
             if (provinces or cities or file_types is not None) else None
-        bm25_ids = self._bm25_ids(query, top_n=top_k * 2, candidate_ids=candidate_ids)
-        vec_ids = self._vector_ids(query, top_n=top_k * 2, candidate_ids=candidate_ids)
-        merged = self._rrf([bm25_ids, vec_ids], top_k=top_k)
+        rerank_on = reranker_mod.is_available()
+        # 首次检索时打一条精排状态日志，一眼看出走没走精排（只打一次）
+        global _reranker_status_logged
+        if not _reranker_status_logged:
+            _reranker_status_logged = True
+            if rerank_on:
+                logger.info("检索精排已启用（粗取池=%d，精排后截 top_k=%d）", RERANKER_TOP_N, top_k)
+            else:
+                logger.info("检索精排未启用（未配置模型，走 BM25+向量+RRF）")
+        # 精排可用时粗取更多候选让 reranker 挑，否则按原 top_k
+        pool = RERANKER_TOP_N if rerank_on else top_k
+        bm25_ids = self._bm25_ids(query, top_n=pool * 2, candidate_ids=candidate_ids)
+        vec_ids = self._vector_ids(query, top_n=pool * 2, candidate_ids=candidate_ids)
+        merged = self._rrf([bm25_ids, vec_ids], top_k=pool)
 
         id2idx = {doc_id: i for i, doc_id in enumerate(self._ids)}
 
@@ -260,7 +280,11 @@ class Retriever:
         # 双保险：候选集内约束后，仍按候选集精确过滤一次（避免非匹配省/市混入）
         if candidate_ids is not None:
             results = [h for h in results if h["id"] in candidate_ids]
-        return results
+
+        # 精排：reranker 可用时对候选池打分换序（score 换成 cross-encoder logit）
+        if rerank_on and results:
+            results = reranker_mod.rerank(query, results)
+        return results[:top_k]
 
 
 # 全局单例：后端启动后复用同一个检索器，避免每次请求重建 BM25 索引
