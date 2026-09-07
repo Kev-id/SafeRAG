@@ -43,6 +43,10 @@ KB_COLLECTION = os.getenv("KB_COLLECTION", "regulations")
 # ---- 服务 ----
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8081"))
+# 监控在 /proc/*/cmdline 里识别 Qwen 引擎进程的子串。引擎拆到独立仓库后，
+# 盒子上 cmdline 已是新路径（如 saferag-infer/python_demo/server.py），
+# 部署时把 QWEN_ENGINE_CMDLINE_MARKER 指过去；默认保留旧路径兼容存量部署。
+QWEN_ENGINE_CMDLINE_MARKER = os.getenv("QWEN_ENGINE_CMDLINE_MARKER", "Qwen3_5/python_demo/server.py")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # ---- JWT 认证 ----

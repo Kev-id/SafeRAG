@@ -13,6 +13,8 @@ import os
 import re
 import subprocess
 
+from backend.core.config import QWEN_ENGINE_CMDLINE_MARKER
+
 logger = logging.getLogger(__name__)
 
 _IS_LINUX = os.name == "posix"
@@ -97,8 +99,10 @@ def _proc_rss_mb(pid: int) -> int | None:
 def _find_server_pids() -> list[int]:
     """扫 /proc/*/cmdline 精确找 Qwen 推理引擎进程。
 
-    匹配 Qwen3_5/python_demo/server.py——避免把 led_server.py、
-    python -m http.server 等同样含 "server.py" 的进程误当引擎。
+    匹配子串由 QWEN_ENGINE_CMDLINE_MARKER 指定（config.py，可环境变量覆盖）——
+    引擎拆到独立仓库（saferag-infer）后 cmdline 路径变了，部署时把该变量
+    指过去；也避免把 led_server.py、python -m http.server 等同样含 "server.py"
+    的进程误当引擎。
     """
     pids = []
     try:
@@ -110,7 +114,7 @@ def _find_server_pids() -> list[int]:
                     cmd = f.read().decode(errors="ignore")
             except Exception:
                 continue
-            if "Qwen3_5/python_demo/server.py" in cmd:
+            if QWEN_ENGINE_CMDLINE_MARKER in cmd:
                 pids.append(int(name))
     except Exception:
         pass
