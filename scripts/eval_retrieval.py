@@ -4,12 +4,18 @@
     python scripts/eval_retrieval.py --queries scripts/eval_queries.auto.json \
         --model 混合检索v2 --use-filter --top-k 5 --out eval_report.txt
 
-  --model       本次用的模型/配置名（写进报告头，多模型对比时区分）
-  --use-filter  开地区+类型筛选；不带则不开
-  --out         .txt 输出路径（追加写，跑多轮会累积）
+  --model         本次用的模型/配置名（写进报告头，多模型对比时区分）
+  --use-filter    开地区+类型筛选；不带则不开
+  --out           .txt 输出路径（追加写，跑多轮会累积）
 
-输出内容：模型、筛选开关、top_k/题数、以及按任务类型（全部/短问句/事故简报/长文）的
-hit@k / recall@k / prec@k / MRR。
+精排（reranker）开关，在 import retriever 前设 env 生效：
+  --rerank-pool   P   精排粗取池大小（RERANKER_TOP_N），>0 才设；默认配置=20
+  --rerank-model  PATH 覆盖 reranker 模型目录（与 --model-dir 对称，缺省走配置默认）
+  --no-rerank          显式关精排（做无精排基线对比）
+embedding 固定用 bge-small，无需参数。
+
+输出内容：模型、筛选开关、精排开关、top_k/题数、平均耗时(ms/条)、
+以及按任务类型（全部/短问句/事故简报/长文）的 hit@k / recall@k / prec@k / MRR。
 """
 
 import argparse
@@ -18,6 +24,7 @@ import logging
 import os
 import random
 import sys
+import time
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -43,8 +50,9 @@ def _metrics(results: list[list[str]], golds: list[set[str]], k: int) -> dict:
 
 
 def build_report(queries: list[dict], results: list[list[str]], k: int,
-                 model: str, use_filter: bool) -> str:
-    """拼一段 txt 报告：模型 / 筛选开关 / 分任务指标。"""
+                 model: str, use_filter: bool, rerank_label: str = "?",
+                 avg_ms: float = 0.0) -> str:
+    """拼一段 txt 报告：模型 / 精排 / 筛选开关 / 平均耗时 / 分任务指标。"""
     golds = [set(q["gold"]) for q in queries]
     splits = [("全部", None)] + [
         (("短问句", "short"), ("事故简报", "news"), ("长文(≥500字)", "long"))[i]
@@ -54,8 +62,9 @@ def build_report(queries: list[dict], results: list[list[str]], k: int,
     lines.append("=" * 52)
     lines.append(f"时间:    {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"模型:    {model}")
+    lines.append(f"精排:    {rerank_label}")
     lines.append(f"地区筛选: {'开' if use_filter else '关'}")
-    lines.append(f"top_k:   {k} | 题数: {len(queries)}")
+    lines.append(f"top_k:   {k} | 题数: {len(queries)} | 平均耗时: {avg_ms:.0f} ms/条")
     lines.append("-" * 52)
     lines.append(f"{'任务类型':<12}{'题数':>5}{'hit@k':>9}{'recall@k':>10}{'prec@k':>9}{'MRR':>8}")
     for name, kind in splits:
@@ -102,10 +111,22 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--max", type=int, default=0, help="取前 N 条（0=全部）")
     ap.add_argument("--model-dir", default=None, help="embedding 模型目录（覆盖环境变量）")
+    ap.add_argument("--rerank-model", default=None, help="reranker 模型目录（覆盖环境变量，与 --model-dir 对称）")
+    ap.add_argument("--rerank-pool", type=int, default=0,
+                    help="精排粗取池大小 RERANKER_TOP_N，>0 才设置（不设则配置默认 20）")
+    ap.add_argument("--no-rerank", action="store_true", help="显式关精排（做无精排基线对比）")
     args = ap.parse_args()
 
     if args.model_dir:
         os.environ["EMBEDDING_MODEL_PATH"] = args.model_dir
+    # 精排开关：清空路径=关；指定目录=覆盖路径；pool>0=覆盖粗取池
+    # 必须在 import retriever（进而 config）之前设好，config 只在 import 时读一次 env
+    if args.no_rerank:
+        os.environ["RERANKER_MODEL_PATH"] = ""
+    elif args.rerank_model:
+        os.environ["RERANKER_MODEL_PATH"] = args.rerank_model
+    if args.rerank_pool:
+        os.environ["RERANKER_TOP_N"] = str(args.rerank_pool)
 
     with open(args.queries, encoding="utf-8") as f:
         queries = json.load(f)
@@ -116,21 +137,32 @@ def main() -> None:
             queries, min(args.sample, len(queries))))
     if args.max:
         queries = queries[: args.max]
-    print(f"评测 {len(queries)} 条，top-{args.top_k}，"
-          f"模型={args.model}，筛选={'开' if args.use_filter else '关'}")
-
-    # 检索：懒加载一次
+    # 检索：懒加载一次（env 已就位，config 此时才读到本运行的精排参数）
     from backend.core.retriever import get_retriever
+    from backend.core import reranker as reranker_mod
     retriever = get_retriever()
+
+    # 精排实际是否启用按模型文件是否存在判定，报告/打印用同一结果
+    if reranker_mod.is_available():
+        rerank_label = f"开(pool={os.getenv('RERANKER_TOP_N', '20')})"
+    else:
+        rerank_label = "关"
+    print(f"评测 {len(queries)} 条，top-{args.top_k}，"
+          f"模型={args.model}，筛选={'开' if args.use_filter else '关'}，精排={rerank_label}")
 
     results: list[list[str]] = []
     n = len(queries)
+    total_t = 0.0
     for i, q in enumerate(queries, 1):
+        t0 = time.perf_counter()
         results.append(_retrieve_sources(retriever, q, args.top_k, args.use_filter))
+        total_t += time.perf_counter() - t0
         if i % 50 == 0 or i == n:
             print(f"  进度 {i}/{n}", flush=True)
+    avg_ms = (total_t / n * 1000) if n else 0.0
 
-    report = build_report(queries, results, args.top_k, args.model, args.use_filter)
+    report = build_report(queries, results, args.top_k, args.model, args.use_filter,
+                          rerank_label, avg_ms)
     print(report)
     if args.out:
         os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
