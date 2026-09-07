@@ -258,6 +258,7 @@ class Retriever:
                 logger.info("检索精排已启用（粗取池=%d，精排后截 top_k=%d）", RERANKER_TOP_N, top_k)
             else:
                 logger.info("检索精排未启用（未配置模型，走 BM25+向量+RRF）")
+                _reranker_status_logged = False
         # 精排可用时粗取更多候选让 reranker 挑，否则按原 top_k
         pool = RERANKER_TOP_N if rerank_on else top_k
         bm25_ids = self._bm25_ids(query, top_n=pool * 2, candidate_ids=candidate_ids)
