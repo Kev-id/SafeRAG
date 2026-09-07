@@ -1,0 +1,19 @@
+[Unit]
+Description=SafeRAG Qwen engine 2B (chat)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/saferag-infer/python_demo
+ExecStart=/usr/bin/python3 server.py \
+  -m /data2/models/Qwen3_5/qwen3.5-2b-int4-autoround_w4bf16_seq8192_bm1688_2core_history_dynamic_20260728_111707.bmodel \
+  -c /data2/models/Qwen3_5/config \
+  --host 127.0.0.1 --port 8001
+Restart=on-failure
+RestartSec=10
+User=root
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

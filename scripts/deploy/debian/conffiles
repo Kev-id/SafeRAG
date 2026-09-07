@@ -1,0 +1,4 @@
+/etc/nginx/conf.d/saferag.conf
+/etc/systemd/system/saferag-api.service
+/etc/systemd/system/saferag-qwen4b.service
+/etc/systemd/system/saferag-qwen2b.service

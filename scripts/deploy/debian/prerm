@@ -1,0 +1,6 @@
+#!/bin/bash
+# 卸载/升级前：停掉服务（升级后由 postinst 重新启用）
+set -e
+systemctl disable --now saferag-api.service saferag-qwen4b.service \
+  saferag-qwen2b.service 2>/dev/null || true
+exit 0

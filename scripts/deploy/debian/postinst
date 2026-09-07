@@ -1,0 +1,64 @@
+#!/bin/bash
+# SafeRAG deb 安装后脚本：装依赖 → 生成配置 → 起服务 → nginx 就位
+set -e
+
+echo "== SafeRAG postinst: 安装 Python 依赖（离线 wheels 优先，其次在线）"
+if ls /opt/saferag/wheels/*.whl >/dev/null 2>&1; then
+  python3 -m pip install --no-index --find-links /opt/saferag/wheels \
+    -r /data/saferag/app/backend/requirements.txt \
+    -r /data/saferag-infer/requirements.txt
+else
+  python3 -m pip install \
+    -r /data/saferag/app/backend/requirements.txt \
+    -r /data/saferag-infer/requirements.txt
+fi
+
+echo "== 生成 /etc/saferag/api.env（升级保留已有，不换 JWT）"
+mkdir -p /etc/saferag
+if [ ! -s /etc/saferag/api.env ]; then
+  umask 077
+  JWT="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+  cat > /etc/saferag/api.env <<EOF
+HOST=0.0.0.0
+PORT=8081
+DATA_DIR=/data/saferag/data
+QWEN_DOC_URL=http://127.0.0.1:8000
+QWEN_CHAT_URL=http://127.0.0.1:8001
+QWEN_DOC_MODEL=tpu-qwen3.5-4B
+QWEN_CHAT_MODEL=tpu-qwen3.5-2B
+EMBEDDING_MODEL_PATH=/data2/models/bge-small-zh-v1.5
+RERANKER_MODEL_PATH=/data2/models/bge-reranker-base
+QWEN_ENGINE_CMDLINE_MARKER=/data/saferag-infer/python_demo/server.py
+JWT_SECRET=$JWT
+EOF
+fi
+
+echo "== 数据目录骨架"
+mkdir -p /data/saferag/data/kb /data/saferag/data/kb_source /data/saferag/data/documents
+
+echo "== 模型就位检查（缺了只警告，可后补）"
+for f in \
+  /data2/models/Qwen3_5/qwen3.5-4b_w4bf16_bm1688.bmodel \
+  /data2/models/Qwen3_5/qwen3.5-2b-int4-autoround_w4bf16_seq8192_bm1688_2core_history_dynamic_20260728_111707.bmodel \
+  /data2/models/bge-small-zh-v1.5/onnx/model_quantized.onnx \
+  /data2/models/bge-reranker-base/onnx/model_quantized.onnx
+do
+  [ -f "$f" ] || echo "  警告: 缺 $f —— 服务会起，但对应能力不可用"
+done
+
+echo "== 启动服务"
+systemctl daemon-reload
+systemctl enable --now saferag-qwen4b.service saferag-qwen2b.service saferag-api.service
+
+echo "== nginx（配置已随包安装, 校验并重载）"
+if nginx -t >/dev/null 2>&1; then
+  systemctl reload nginx 2>/dev/null || systemctl start nginx
+else
+  nginx -t || echo "  nginx 配置校验失败，请人工检查 /etc/nginx/conf.d/saferag.conf"
+fi
+
+echo "== ✅ SafeRAG 安装完成"
+echo "   前端:   http://<盒子IP>/"
+echo "   API 文档: http://<盒子IP>/docs"
+echo "   服务:   systemctl status saferag-api saferag-qwen4b saferag-qwen2b"
+echo "   日志:   journalctl -u saferag-api -f"
