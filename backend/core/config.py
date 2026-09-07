@@ -24,7 +24,7 @@ EMBEDDING_MODEL_PATH = os.getenv("EMBEDDING_MODEL_PATH", "/data2/models/bge-smal
 # ---- Reranker（可选精排，bge-reranker cross-encoder）----
 # 结构与 embedding 相同（onnx/model_quantized.onnx + tokenizer.json）。
 # 留空 = 不启用精排，检索完全走原来的 BM25+向量+RRF。
-RERANKER_MODEL_PATH = os.getenv("RERANKER_MODEL_PATH", "D:\\Users\\Administrator\\Desktop\\models\\bge-reranker-base")
+RERANKER_MODEL_PATH = os.getenv("RERANKER_MODEL_PATH", "/data2/models/bge-reranker-base")
 # 精排池：粗取多少条候选交给 reranker 打分（越大召回越全，越慢）
 RERANKER_TOP_N = int(os.getenv("RERANKER_TOP_N", "20"))
 
