@@ -137,6 +137,34 @@ fi
 echo "== 源码: $ROOT  |  版本: $VERSION  |  前端: $FRONTEND"
 
 # ===========================================================================
+# 手动打 deb（tar + ar）：比 dpkg-deb 透明，data.tar 逐块可看进度
+#   deb = ar 归档 = debian-binary + control.tar + data.tar
+# ===========================================================================
+build_deb() {
+  local pkg="$1" out="$2" label="$3"
+  command -v ar >/dev/null || { echo "缺 ar(binutils)，需：apt install binutils"; return 1; }
+  local tdir
+  tdir="$(mktemp -d)"
+  echo '2.0' > "$tdir/debian-binary"
+
+  echo "-- $label: control（小，秒过）"
+  tar -C "$pkg/DEBIAN" -cf "$tdir/control.tar" --owner=0 --group=0 --sort=name .
+
+  echo "-- $label: data.tar（约 $(du -sh "$pkg" | cut -f1)，每 100MB 打一个点，耐心）"
+  tar -C "$pkg" -cf "$tdir/data.tar" --owner=0 --group=0 --sort=name \
+      --checkpoint=204800 --checkpoint-action=echo='·' --exclude=DEBIAN .
+
+  echo
+  echo "-- $label: ar 组装 .deb"
+  ar rc "$out" "$tdir/debian-binary" "$tdir/control.tar" "$tdir/data.tar"
+  rm -rf "$tdir"
+
+  # 自检：确认是合法 deb（dpkg-deb --info 能读）
+  dpkg-deb --info "$out" >/dev/null 2>&1 || { echo "!! $out 不是合法 deb"; return 1; }
+  echo "   ✅ $out  $(du -h "$out" | cut -f1)"
+}
+
+# ===========================================================================
 # ① models 包 → /data2/models
 # ===========================================================================
 P1="$OUT_DIR/_models"
@@ -155,10 +183,7 @@ echo "-- 复制 2B bmodel ($(du -h "$BM_2B" | cut -f1))"
 rsync -a --progress "$BM_2B" "$P1/data2/models/Qwen3_5/"
 rsync -a "$CFG_SRC/."   "$P1/data2/models/Qwen3_5/config/"
 MDEB="$OUT_DIR/saferag-models_${VERSION}_${ARCH}.deb"
-# -Znone：不走二次压缩（bmodel/轮子已压过，压缩纯烧 CPU）——快且看得到结束
-echo "-- dpkg-deb 打包（-Znone 免压缩）..."
-dpkg-deb -Znone --build "$P1" "$MDEB" >/dev/null
-echo "   ✅ $MDEB  $(du -h "$MDEB" | cut -f1)"
+build_deb "$P1" "$MDEB" "models 包"
 
 # ===========================================================================
 # ② app 包 → /data/SafeRAG(代码) + /opt/emergency-platform/frontend(前端) + /etc(nginx/systemd) + /opt/saferag(wheels/offline-apt)
@@ -217,9 +242,7 @@ cp "$SCRIPT/debian/app/conffiles" "$P2/DEBIAN/conffiles"
 chmod 755 "$P2/DEBIAN/postinst" "$P2/DEBIAN/prerm"
 
 ADEB="$OUT_DIR/saferag_${VERSION}_${ARCH}.deb"
-echo "-- dpkg-deb 打包 app 包（-Znone 免压缩）..."
-dpkg-deb -Znone --build "$P2" "$ADEB" >/dev/null
-echo "   ✅ $ADEB  $(du -h "$ADEB" | cut -f1)"
+build_deb "$P2" "$ADEB" "app 包"
 
 echo
 echo "== ✅ 打包完成，输出目录: $OUT_DIR"
