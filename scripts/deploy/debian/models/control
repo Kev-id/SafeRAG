@@ -1,0 +1,7 @@
+Package: saferag-models
+Version: @VERSION@
+Section: misc
+Priority: optional
+Architecture: @ARCH@
+Maintainer: SafeRAG <dev@saferag.local>
+Description: SafeRAG 模型包 —— bge embedding/reranker + Qwen3.5 4B/2B bmodel + 引擎 config

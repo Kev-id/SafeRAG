@@ -14,7 +14,8 @@ Makefile
 # Data（运行时生成：SQLite 数据库 + 文档目录）
 data/
 eval_results/
-models/
+# 仓库根 models/（5.9G 交付模型，只忽略根这一个目录，勿误伤 scripts/deploy/debian/models/）
+/models/
 
 # IDE / 本地配置
 .vscode/
