@@ -39,6 +39,8 @@ bash scripts/deploy/make_deb.sh \
 
 `--make-wheels` 可现场生成 wheels（须本机 aarch64）;`--frontend` 默认取
 `../emergency-platform/frontend`,没有则 `/data2/www/emergency-platform/frontend`。
+`--models` 默认取仓库根 `models/`,没有则 `--models /data2/models`(盒子上打包直接指过去,
+省掉 5.9G 副本;两种目录结构都认: 仓库平铺 或 盒子 Qwen3_5/ 分组)。
 
 ## 装机（目标盒子上, 全离线, 两条命令）
 

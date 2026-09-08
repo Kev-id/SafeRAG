@@ -19,7 +19,12 @@ SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT/../.." && pwd)"
 VERSION="1.0.0"
 ARCH="${ARCH:-arm64}"
-MODELS_DIR="$ROOT/models"
+# 模型来源默认：仓库根 models/；没有则退到盒子 /data2/models（两种目录结构都认）
+if [ -d "$ROOT/models" ]; then
+  MODELS_DIR="$ROOT/models"
+else
+  MODELS_DIR="/data2/models"
+fi
 FRONTEND=""
 WHEELS=""
 MAKE_WHEELS=""
@@ -30,7 +35,7 @@ usage() {
   cat <<EOF
 用法: make_deb.sh [选项]
   --frontend DIR   前端静态目录        (默认: ../emergency-platform/frontend; 否则 /data2/www/emergency-platform/frontend)
-  --models DIR     模型目录            (默认: 仓库根 models/)
+  --models DIR     模型目录            (默认: 仓库根 models/; 否则 /data2/models。两种布局都认: 平铺 或 Qwen3_5/ 分组)
   --wheels DIR     离线 Python 轮子目录(推荐, 已备好则塞进包)
   --make-wheels    现场 pip download 生成 wheels(需网络且本机为 aarch64)
   --offline-apt DIR nginx/依赖 的 .deb 目录(目标机无 nginx 时离线补装)
@@ -65,12 +70,42 @@ if [ -z "$FRONTEND" ]; then
 fi
 [ -n "$FRONTEND" ] && [ -d "$FRONTEND" ] || { echo "未找到前端目录(--frontend)"; exit 1; }
 
-# bmodel 必在
-for f in qwen3.5-4b_w4bf16_bm1688.bmodel \
-         qwen3.5-2b-int4-autoround_w4bf16_seq8192_bm1688_2core_history_dynamic_20260728_111707.bmodel; do
-  [ -f "$MODELS_DIR/$f" ] || { echo "缺 $MODELS_DIR/$f"; exit 1; }
+# ---- 解析模型来源（同时支持两种目录结构：仓库根平铺 models/ 或 盒子 /data2/models 的 Qwen3_5/ 分组）----
+BM_4B=""; for c in "$MODELS_DIR/Qwen3_5/qwen3.5-4b_w4bf16_bm1688.bmodel" "$MODELS_DIR/qwen3.5-4b_w4bf16_bm1688.bmodel"; do [ -f "$c" ] && BM_4B="$c" && break; done
+[ -n "$BM_4B" ] || { echo "缺 4B bmodel: $MODELS_DIR 下需有 qwen3.5-4b_w4bf16_bm1688.bmodel（顶层或 Qwen3_5/ 内）"; exit 1; }
+BM_2B=""; for c in \
+  "$MODELS_DIR/Qwen3_5/qwen3.5-2b-int4-autoround_w4bf16_seq8192_bm1688_2core_history_dynamic_20260728_111707.bmodel" \
+  "$MODELS_DIR/qwen3.5-2b-int4-autoround_w4bf16_seq8192_bm1688_2core_history_dynamic_20260728_111707.bmodel"; do
+  [ -f "$c" ] && BM_2B="$c" && break
 done
-[ -d "$ROOT/Qwen3_5/config" ] || { echo "缺仓库 Qwen3_5/config(引擎 config)"; exit 1; }
+[ -n "$BM_2B" ] || { echo "缺 2B bmodel: ...111707.bmodel 未找到（顶层或 Qwen3_5/ 内）"; exit 1; }
+
+# 引擎 config：优先 --models/Qwen3_5/config（盒子实况），否则仓库 Qwen3_5/config
+CFG_SRC=""
+[ -d "$MODELS_DIR/Qwen3_5/config" ] && CFG_SRC="$MODELS_DIR/Qwen3_5/config"
+[ -z "$CFG_SRC" ] && [ -d "$ROOT/Qwen3_5/config" ] && CFG_SRC="$ROOT/Qwen3_5/config"
+[ -n "$CFG_SRC" ] || { echo "缺引擎 config（/data2/models/Qwen3_5/config 或仓库 Qwen3_5/config）"; exit 1; }
+
+# embedding：优先知名目录名 bge-small-zh-*；否则扫非 reranker 的 bge-* 目录
+EMB_SRC=""
+for c in "$MODELS_DIR/bge-small-zh-v1.5" "$MODELS_DIR/bge-small-zh-onnx" "$MODELS_DIR/bge-small-zh"; do
+  [ -f "$c/onnx/model_quantized.onnx" ] && [ -f "$c/tokenizer.json" ] && EMB_SRC="$c" && break
+done
+if [ -z "$EMB_SRC" ]; then
+  for d in "$MODELS_DIR"/bge-*/; do
+    case "$d" in *reranker*) continue;; esac
+    [ -f "$d/onnx/model_quantized.onnx" ] && [ -f "$d/tokenizer.json" ] && EMB_SRC="$d" && break
+  done
+fi
+[ -n "$EMB_SRC" ] || { echo "缺 embedding 模型（需 onnx/model_quantized.onnx + tokenizer.json）"; exit 1; }
+
+# reranker：bge-reranker-base 目录（含 onnx/model_quantized.onnx）
+RERK_SRC=""
+for d in "$MODELS_DIR/bge-reranker-base" "$MODELS_DIR"/*reranker*; do
+  [ -d "$d" ] && [ -f "$d/onnx/model_quantized.onnx" ] && RERK_SRC="$d" && break
+done
+[ -n "$RERK_SRC" ] || { echo "缺 reranker 模型（bge-reranker-base）"; exit 1; }
+echo "== 模型来源: $MODELS_DIR  (embedding=$EMB_SRC reranker=$RERK_SRC)"
 
 if [ -n "$MAKE_WHEELS" ]; then
   [ "$(uname -m)" = "aarch64" ] || { echo "--make-wheels 必须在本机为 aarch64 时使用(x86 会抓到错轮子); 请用 --wheels 传已在盒子生成的目录"; exit 1; }
@@ -90,12 +125,12 @@ cp "$SCRIPT/debian/models/control" "$P1/DEBIAN/control"
 sed -i "s/@VERSION@/$VERSION/g; s/@ARCH@/$ARCH/g" "$P1/DEBIAN/control"
 
 echo "== 组装 models 包 ..."
-rsync -a "$MODELS_DIR/bge-small-zh-onnx/"  "$P1/data2/models/bge-small-zh-v1.5/"
-rsync -a "$MODELS_DIR/bge-reranker-base/"  "$P1/data2/models/bge-reranker-base/"
+rsync -a "$EMB_SRC/."   "$P1/data2/models/bge-small-zh-v1.5/"
+rsync -a "$RERK_SRC/."  "$P1/data2/models/bge-reranker-base/"
 mkdir -p "$P1/data2/models/Qwen3_5"
-cp -v "$MODELS_DIR/qwen3.5-4b_w4bf16_bm1688.bmodel"          "$P1/data2/models/Qwen3_5/" >/dev/null
-cp -v "$MODELS_DIR/qwen3.5-2b-int4-autoround_w4bf16_seq8192_bm1688_2core_history_dynamic_20260728_111707.bmodel" "$P1/data2/models/Qwen3_5/" >/dev/null
-rsync -a "$ROOT/Qwen3_5/config/"  "$P1/data2/models/Qwen3_5/config/"
+cp "$BM_4B" "$P1/data2/models/Qwen3_5/"
+cp "$BM_2B" "$P1/data2/models/Qwen3_5/"
+rsync -a "$CFG_SRC/."   "$P1/data2/models/Qwen3_5/config/"
 MDEB="$OUT_DIR/saferag-models_${VERSION}_${ARCH}.deb"
 dpkg-deb --build "$P1" "$MDEB" >/dev/null
 echo "   ✅ $MDEB  $(du -h "$MDEB" | cut -f1)"
