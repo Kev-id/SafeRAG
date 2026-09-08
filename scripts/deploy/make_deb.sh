@@ -14,6 +14,8 @@
 #   或: --make-wheels  现场生成 arm64 wheels(需网络, 且本机必须是 aarch64)
 # =============================================================================
 set -euo pipefail
+# 「路灯」：任何一步失败立刻打印 行号+命令+退出码，绝不无声自杀
+trap 's=$?; echo "!! make_deb 在行 $LINENO 失败: $BASH_COMMAND (exit $s)" >&2; exit $s' ERR
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT/../.." && pwd)"
