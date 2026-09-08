@@ -132,15 +132,19 @@ cp "$SCRIPT/debian/models/control" "$P1/DEBIAN/control"
 sed -i "s/@VERSION@/$VERSION/g; s/@ARCH@/$ARCH/g" "$P1/DEBIAN/control"
 [ "$(tail -c 1 "$P1/DEBIAN/control")" = "$(printf '\n')" ] || printf '\n' >> "$P1/DEBIAN/control"
 
-echo "== 组装 models 包 ..."
-rsync -a "$EMB_SRC/."   "$P1/data2/models/bge-small-zh-v1.5/"
-rsync -a "$RERK_SRC/."  "$P1/data2/models/bge-reranker-base/"
+echo "== 组装 models 包（进度见逐文件输出） ..."
+rsync -a --progress "$EMB_SRC/."   "$P1/data2/models/bge-small-zh-v1.5/" 2>&1 | tr '\r' '\n' | tail -1
+rsync -a --progress "$RERK_SRC/."  "$P1/data2/models/bge-reranker-base/" 2>&1 | tr '\r' '\n' | tail -1
 mkdir -p "$P1/data2/models/Qwen3_5"
-cp "$BM_4B" "$P1/data2/models/Qwen3_5/"
-cp "$BM_2B" "$P1/data2/models/Qwen3_5/"
+echo "-- 复制 4B bmodel ($(du -h "$BM_4B" | cut -f1))"
+rsync -a --progress "$BM_4B" "$P1/data2/models/Qwen3_5/"
+echo "-- 复制 2B bmodel ($(du -h "$BM_2B" | cut -f1))"
+rsync -a --progress "$BM_2B" "$P1/data2/models/Qwen3_5/"
 rsync -a "$CFG_SRC/."   "$P1/data2/models/Qwen3_5/config/"
 MDEB="$OUT_DIR/saferag-models_${VERSION}_${ARCH}.deb"
-dpkg-deb --build "$P1" "$MDEB" >/dev/null
+# -Znone：不走二次压缩（bmodel/轮子已压过，压缩纯烧 CPU）——快且看得到结束
+echo "-- dpkg-deb 打包（-Znone 免压缩）..."
+dpkg-deb -Znone --build "$P1" "$MDEB" >/dev/null
 echo "   ✅ $MDEB  $(du -h "$MDEB" | cut -f1)"
 
 # ===========================================================================
@@ -200,7 +204,8 @@ cp "$SCRIPT/debian/app/conffiles" "$P2/DEBIAN/conffiles"
 chmod 755 "$P2/DEBIAN/postinst" "$P2/DEBIAN/prerm"
 
 ADEB="$OUT_DIR/saferag_${VERSION}_${ARCH}.deb"
-dpkg-deb --build "$P2" "$ADEB" >/dev/null
+echo "-- dpkg-deb 打包 app 包（-Znone 免压缩）..."
+dpkg-deb -Znone --build "$P2" "$ADEB" >/dev/null
 echo "   ✅ $ADEB  $(du -h "$ADEB" | cut -f1)"
 
 echo
