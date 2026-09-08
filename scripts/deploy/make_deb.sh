@@ -217,7 +217,8 @@ if [ -n "$MAKE_WHEELS" ]; then
       && rm -f "$s" \
       || { echo "   ⚠ 构建失败，留在包内(离线可能也要编译)"; }
   done
-  n_bad=$(ls "$P2/opt/saferag/wheels"/*.tar.gz 2>/dev/null | wc -l)
+  # find 而非 ls 通配符：无匹配时 find 返回 0，ls *.tar.gz 会以退出码 2 触发 set -e/pipefail 误杀
+  n_bad=$(find "$P2/opt/saferag/wheels" -maxdepth 1 -name '*.tar.gz' 2>/dev/null | wc -l)
   if [ "$n_bad" != 0 ]; then
     echo "!! 仍有 $n_bad 个 sdist(未能 wheel 化)，离线装会失败或需编译:"
     ls "$P2/opt/saferag/wheels"/*.tar.gz 2>/dev/null
