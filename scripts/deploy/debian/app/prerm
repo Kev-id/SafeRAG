@@ -1,0 +1,5 @@
+#!/bin/bash
+# 卸载/降级前：停掉服务
+set -e
+systemctl disable --now saferag.service qwen.service qwen_chat.service 2>/dev/null || true
+exit 0
