@@ -121,6 +121,19 @@ fi
 
 [ -z "$OUT_DIR" ] && OUT_DIR="$(mktemp -d)/deb"
 mkdir -p "$OUT_DIR"
+
+# 关键：dpkg-deb 的临时 .deb 默认落在 TMPDIR(/tmp→根分区, 常不够 6G)
+# 必须指到大盘，否则报 "No space left on device"（本次就翻在这）
+export TMPDIR="$OUT_DIR"
+[ -n "$DEBUG" ] && echo "== TMPDIR → $TMPDIR"
+
+# 空间预检：staging(约=模型+代码) + 输出的 deb 双份，粗估需 ≥ 15G
+avail_kb=$(df -k "$OUT_DIR" | awk 'END{print $4}')
+if [ "$avail_kb" -lt $((15 * 1024 * 1024)) ]; then
+  echo "⚠ 输出盘 $OUT_DIR 剩余 $(echo "$avail_kb 1024" | awk '{printf "%.1fG", $1/$2/1024}')，打包峰值约需 15G；"
+  echo "  建议 -o /data2/... （根部空间小，模型+deb 会压爆）"
+fi
+
 echo "== 源码: $ROOT  |  版本: $VERSION  |  前端: $FRONTEND"
 
 # ===========================================================================
