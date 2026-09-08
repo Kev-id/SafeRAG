@@ -220,9 +220,22 @@ if [ -n "$WHEELS" ]; then
 fi
 if [ -n "$MAKE_WHEELS" ]; then
   mkdir -p "$P2/opt/saferag/wheels"
+  echo "== --make-wheels: 下载依赖树 → wheels/ ..."
   python3 -m pip download -r "$ROOT/backend/requirements.txt" -d "$P2/opt/saferag/wheels"
+  # sdist(纯 Python 老包如 jieba 常常只发 tar.gz) 现场构建成 wheel，离线装才不出岔子
+  for s in "$P2/opt/saferag/wheels"/*.tar.gz; do
+    [ -e "$s" ] || continue
+    echo "   sdist→wheel: $(basename "$s")"
+    python3 -m pip wheel --no-deps --wheel-dir "$P2/opt/saferag/wheels" "$s" >/dev/null 2>&1 \
+      && rm -f "$s" \
+      || echo "   ⚠ 构建失败，留在包内(离线可能也要编译)"
+  done
   n_bad=$(ls "$P2/opt/saferag/wheels"/*.tar.gz 2>/dev/null | wc -l)
-  [ "$n_bad" = 0 ] || echo "!! 有 $n_bad 个源码包(sdist)——离线装不了，需手工处理"
+  if [ "$n_bad" != 0 ]; then
+    echo "!! 仍有 $n_bad 个 sdist(未能 wheel 化)，离线装会失败或需编译:"
+    ls "$P2/opt/saferag/wheels"/*.tar.gz 2>/dev/null
+    exit 1
+  fi
 fi
 
 # offline-apt（nginx/依赖 的 .deb，目标机没 nginx 时离线补装）
