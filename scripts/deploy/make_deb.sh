@@ -130,6 +130,7 @@ P1="$OUT_DIR/_models"
 mkdir -p "$P1/DEBIAN" "$P1/data2/models"
 cp "$SCRIPT/debian/models/control" "$P1/DEBIAN/control"
 sed -i "s/@VERSION@/$VERSION/g; s/@ARCH@/$ARCH/g" "$P1/DEBIAN/control"
+[ "$(tail -c 1 "$P1/DEBIAN/control")" = "$(printf '\n')" ] || printf '\n' >> "$P1/DEBIAN/control"
 
 echo "== 组装 models 包 ..."
 rsync -a "$EMB_SRC/."   "$P1/data2/models/bge-small-zh-v1.5/"
@@ -192,6 +193,7 @@ fi
 # debian 脚本
 cp "$SCRIPT/debian/app/control" "$P2/DEBIAN/control"
 sed -i "s/@VERSION@/$VERSION/g; s/@ARCH@/$ARCH/g" "$P2/DEBIAN/control"
+[ "$(tail -c 1 "$P2/DEBIAN/control")" = "$(printf '\n')" ] || printf '\n' >> "$P2/DEBIAN/control"
 cp "$SCRIPT/debian/app/postinst"  "$P2/DEBIAN/postinst"
 cp "$SCRIPT/debian/app/prerm"     "$P2/DEBIAN/prerm"
 cp "$SCRIPT/debian/app/conffiles" "$P2/DEBIAN/conffiles"
