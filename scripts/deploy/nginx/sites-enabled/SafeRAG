@@ -1,0 +1,81 @@
+# =============================================================================
+# 应急安全综合平台 —— nginx 站点配置（无 Docker 前端版 / B 方案）
+# 作用: 目标机去掉 docker 前端容器后, 由宿主 nginx 直接托管前端静态页并反代 API。
+# 放置: 覆盖目标机 /etc/nginx/sites-enabled/SafeRAG 后  nginx -t && systemctl restart nginx
+# 说明: 相比源盒配置, 仅把 "location / { proxy_pass http://127.0.0.1:18081 }"
+#       (原反代到 docker 前端容器) 改为 "root <frontend> 静态托管"。
+#       其余 /api /v1 /health /docs 反代规则与原盒一致, 不含 docker 依赖。
+# =============================================================================
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    # 前端静态页面目录(与打包内容一致; 若实际路径不同请改 index 行与 root)
+    root /data2/www/emergency-platform/frontend;
+    index index.html;
+
+    # -------------------------------------------------------------
+    # 1. SafeRAG 业务 API (8081)
+    # -------------------------------------------------------------
+    location /api/ {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+        client_max_body_size 20m;
+    }
+
+    # -------------------------------------------------------------
+    # 2. Qwen3.5 大模型 API (8000) —— SSE 流式必须关闭缓冲
+    # -------------------------------------------------------------
+    location /v1/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+
+    location /health {
+        proxy_pass http://127.0.0.1:8000/health;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # -------------------------------------------------------------
+    # 3. 后端 API 文档 (8081)
+    # -------------------------------------------------------------
+    location /docs {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location /openapi.json {
+        proxy_pass http://127.0.0.1:8081/openapi.json;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # -------------------------------------------------------------
+    # 静态文件缓存(可选)
+    # -------------------------------------------------------------
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
+        expires 1d;
+        add_header Cache-Control "public";
+        try_files $uri =404;
+    }
+}
