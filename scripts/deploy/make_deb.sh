@@ -19,12 +19,7 @@ SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT/../.." && pwd)"
 VERSION="1.0.0"
 ARCH="${ARCH:-arm64}"
-# 模型来源默认：仓库根 models/；没有则退到盒子 /data2/models（两种目录结构都认）
-if [ -d "$ROOT/models" ]; then
-  MODELS_DIR="$ROOT/models"
-else
-  MODELS_DIR="/data2/models"
-fi
+MODELS_DIR=""
 FRONTEND=""
 WHEELS=""
 MAKE_WHEELS=""
@@ -35,7 +30,7 @@ usage() {
   cat <<EOF
 用法: make_deb.sh [选项]
   --frontend DIR   前端静态目录        (默认: ../emergency-platform/frontend; 否则 /data2/www/emergency-platform/frontend)
-  --models DIR     模型目录            (默认: 仓库根 models/; 否则 /data2/models。两种布局都认: 平铺 或 Qwen3_5/ 分组)
+  --models DIR     模型目录            (默认: 盒子上优先 /data2/models(真含 bmodel)，否则仓库根 models/。两种布局都认: 平铺 或 Qwen3_5/ 分组)
   --wheels DIR     离线 Python 轮子目录(推荐, 已备好则塞进包)
   --make-wheels    现场 pip download 生成 wheels(需网络且本机为 aarch64)
   --offline-apt DIR nginx/依赖 的 .deb 目录(目标机无 nginx 时离线补装)
@@ -58,6 +53,16 @@ while [ $# -gt 0 ]; do
     *) echo "未知参数: $1"; usage; exit 2 ;;
   esac
 done
+
+# ---- 默认模型来源：优先盒子 /data2/models（真含 4B bmodel 时），否则仓库根 models/ ----
+if [ -z "$MODELS_DIR" ]; then
+  if [ -f /data2/models/Qwen3_5/qwen3.5-4b_w4bf16_bm1688.bmodel ] \
+     || [ -f /data2/models/qwen3.5-4b_w4bf16_bm1688.bmodel ]; then
+    MODELS_DIR="/data2/models"
+  else
+    MODELS_DIR="$ROOT/models"
+  fi
+fi
 
 command -v dpkg-deb >/dev/null || { echo "需要 dpkg-deb（请在 Debian 环境运行）"; exit 1; }
 
