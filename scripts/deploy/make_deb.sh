@@ -137,29 +137,13 @@ fi
 echo "== 源码: $ROOT  |  版本: $VERSION  |  前端: $FRONTEND"
 
 # ===========================================================================
-# 手动打 deb（tar + ar）：比 dpkg-deb 透明，data.tar 逐块可看进度
-#   deb = ar 归档 = debian-binary + control.tar + data.tar
+# 打 deb：一律用 dpkg-deb（标准写法，保证 dpkg -i 能装）。
+# 手拼 ar+tar 虽可有进度，但 tar 格式与 dpkg 严格解析不兼容 → 装不上(P2C)
 # ===========================================================================
 build_deb() {
   local pkg="$1" out="$2" label="$3"
-  command -v ar >/dev/null || { echo "缺 ar(binutils)，需：apt install binutils"; return 1; }
-  local tdir
-  tdir="$(mktemp -d)"
-  echo '2.0' > "$tdir/debian-binary"
-
-  echo "-- $label: control（小，秒过）"
-  tar -C "$pkg/DEBIAN" -cf "$tdir/control.tar" --owner=0 --group=0 --sort=name .
-
-  echo "-- $label: data.tar（约 $(du -sh "$pkg" | cut -f1)，每 100MB 打一个点，耐心）"
-  tar -C "$pkg" -cf "$tdir/data.tar" --owner=0 --group=0 --sort=name \
-      --checkpoint=204800 --checkpoint-action=echo='·' --exclude=DEBIAN .
-
-  echo
-  echo "-- $label: ar 组装 .deb"
-  ar rc "$out" "$tdir/debian-binary" "$tdir/control.tar" "$tdir/data.tar"
-  rm -rf "$tdir"
-
-  # 自检：确认是合法 deb（dpkg-deb --info 能读）
+  echo "-- $label: dpkg-deb 打包（$(du -sh "$pkg" | cut -f1)，静默，大包请耐心数分钟）..."
+  dpkg-deb -Znone --build "$pkg" "$out" >/dev/null
   dpkg-deb --info "$out" >/dev/null 2>&1 || { echo "!! $out 不是合法 deb"; return 1; }
   echo "   ✅ $out  $(du -h "$out" | cut -f1)"
 }
@@ -225,10 +209,11 @@ if [ -n "$MAKE_WHEELS" ]; then
   # sdist(纯 Python 老包如 jieba 常常只发 tar.gz) 现场构建成 wheel，离线装才不出岔子
   for s in "$P2/opt/saferag/wheels"/*.tar.gz; do
     [ -e "$s" ] || continue
-    echo "   sdist→wheel: $(basename "$s")"
-    python3 -m pip wheel --no-deps --wheel-dir "$P2/opt/saferag/wheels" "$s" >/dev/null 2>&1 \
+    echo "   sdist→wheel(约几十秒): $(basename "$s")"
+    # --no-build-isolation：用系统 setuptools/jieba 老包所需仅此，避免离线再去抓隔离构建依赖
+    python3 -m pip wheel --no-deps --no-build-isolation --wheel-dir "$P2/opt/saferag/wheels" "$s" \
       && rm -f "$s" \
-      || echo "   ⚠ 构建失败，留在包内(离线可能也要编译)"
+      || { echo "   ⚠ 构建失败，留在包内(离线可能也要编译)"; }
   done
   n_bad=$(ls "$P2/opt/saferag/wheels"/*.tar.gz 2>/dev/null | wc -l)
   if [ "$n_bad" != 0 ]; then
