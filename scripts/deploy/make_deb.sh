@@ -29,7 +29,7 @@ OUT_DIR=""
 usage() {
   cat <<EOF
 用法: make_deb.sh [选项]
-  --frontend DIR   前端静态目录        (默认: ../emergency-platform/frontend; 否则 /data2/www/emergency-platform/frontend)
+  --frontend DIR   前端静态目录        (默认: /opt/emergency-platform/frontend; 否则 ../emergency-platform/frontend, /data2/www/...)
   --models DIR     模型目录            (默认: 盒子上优先 /data2/models(真含 bmodel)，否则仓库根 models/。两种布局都认: 平铺 或 Qwen3_5/ 分组)
   --wheels DIR     离线 Python 轮子目录(推荐, 已备好则塞进包)
   --make-wheels    现场 pip download 生成 wheels(需网络且本机为 aarch64)
@@ -69,7 +69,9 @@ command -v dpkg-deb >/dev/null || { echo "需要 dpkg-deb（请在 Debian 环境
 # ---- 参数探测/校验 ----
 [ -d "$MODELS_DIR" ] || { echo "缺模型目录: $MODELS_DIR"; exit 1; }
 if [ -z "$FRONTEND" ]; then
-  for cand in "$ROOT/../emergency-platform/frontend" /data2/www/emergency-platform/frontend; do
+  for cand in /opt/emergency-platform/frontend \
+              "$ROOT/../emergency-platform/frontend" \
+              /data2/www/emergency-platform/frontend; do
     [ -d "$cand" ] && FRONTEND="$cand" && break
   done
 fi
@@ -141,10 +143,10 @@ dpkg-deb --build "$P1" "$MDEB" >/dev/null
 echo "   ✅ $MDEB  $(du -h "$MDEB" | cut -f1)"
 
 # ===========================================================================
-# ② app 包 → /data/SafeRAG(代码) + /data2/www/...(前端) + /etc(nginx/systemd) + /opt/saferag(wheels/offline-apt)
+# ② app 包 → /data/SafeRAG(代码) + /opt/emergency-platform/frontend(前端) + /etc(nginx/systemd) + /opt/saferag(wheels/offline-apt)
 # ===========================================================================
 P2="$OUT_DIR/_app"
-mkdir -p "$P2/DEBIAN" "$P2/data/SafeRAG" "$P2/data2/www/emergency-platform" \
+mkdir -p "$P2/DEBIAN" "$P2/data/SafeRAG" "$P2/opt/emergency-platform" \
          "$P2/etc/nginx" "$P2/etc/systemd/system" "$P2/opt/saferag"
 
 echo "== 组装 app 包 ..."
@@ -158,8 +160,8 @@ else
   echo "!! 无 rsync，代码将含运行时数据，建议先装 rsync"; exit 1
 fi
 
-# 前端 → /data2/www/emergency-platform/frontend（nginx site root 即此路径）
-rsync -a "$FRONTEND/" "$P2/data2/www/emergency-platform/frontend/"
+# 前端 → /opt/emergency-platform/frontend（nginx site root 即此路径）
+rsync -a "$FRONTEND/" "$P2/opt/emergency-platform/frontend/"
 
 # nginx 配置整树 → /etc/nginx
 rsync -a "$SCRIPT/nginx/" "$P2/etc/nginx/"

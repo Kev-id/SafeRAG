@@ -12,7 +12,7 @@ server {
     server_name _;
 
     # 前端静态页面目录(与打包内容一致; 若实际路径不同请改 index 行与 root)
-    root /data2/www/emergency-platform/frontend;
+    root /opt/emergency-platform/frontend;
     index index.html;
 
     # -------------------------------------------------------------

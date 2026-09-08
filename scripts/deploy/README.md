@@ -38,7 +38,8 @@ bash scripts/deploy/make_deb.sh \
 ```
 
 `--make-wheels` 可现场生成 wheels（须本机 aarch64）;`--frontend` 默认取
-`../emergency-platform/frontend`,没有则 `/data2/www/emergency-platform/frontend`。
+`/opt/emergency-platform/frontend`,没有则退 `../emergency-platform/frontend`、
+`/data2/www/emergency-platform/frontend`。
 `--models` 默认取仓库根 `models/`,没有则 `--models /data2/models`(盒子上打包直接指过去,
 省掉 5.9G 副本;两种目录结构都认: 仓库平铺 或 盒子 Qwen3_5/ 分组)。
 
@@ -60,7 +61,7 @@ dpkg -i saferag_1.0.0_arm64.deb           # 代码→/data, nginx→/etc, 服务
 | `data2/models/bge-reranker-base/` | 精排 | `api.env RERANKER_MODEL_PATH` |
 | `data2/models/Qwen3_5/*.bmodel` + `config/` | 引擎权重+config | `qwen.service`/`qwen_chat.service` ExecStart |
 | `data/SafeRAG/*` | 后端+引擎代码 | `saferag.service` WorkingDirectory |
-| `data2/www/emergency-platform/frontend/` | 前端静态 | `nginx sites-available/SafeRAG` root |
+| `opt/emergency-platform/frontend/` | 前端静态 | `nginx sites-available/SafeRAG` root |
 | `etc/nginx/*`, `etc/systemd/system/*` | 系统配置 | 各服务/nginx |
 | `opt/saferag/wheels`, `opt/saferag/offline-apt` | 离线依赖 | 装机时消费 |
 
