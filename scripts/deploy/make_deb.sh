@@ -192,8 +192,15 @@ fi
 # 前端 → /opt/emergency-platform/frontend（nginx site root 即此路径）
 rsync -a "$FRONTEND/" "$P2/opt/emergency-platform/frontend/"
 
-# nginx 配置整树 → /etc/nginx
-rsync -a "$SCRIPT/nginx/" "$P2/etc/nginx/"
+# nginx 站点配置 → /etc/nginx（只带 SafeRAG 自己的站点文件）
+# ⚠ 绝不能整树铺：scripts/deploy/nginx 曾是目标机 /etc/nginx 的整树快照，里面的
+#   fastcgi.conf、mime.types、koi-utf、snippets/*、modules-enabled/*、
+#   sites-available/default、nginx.conf 等都是 nginx-common/nginx 包自带的库存文件。
+#   整树打进 deb 后, 在已装过 nginx 的盒子上 dpkg 会拒绝接管这些"别人的文件" →
+#   trying to overwrite '/etc/nginx/fastcgi.conf', which is also in package nginx-common
+mkdir -p "$P2/etc/nginx/sites-available" "$P2/etc/nginx/sites-enabled"
+cp -f "$SCRIPT/nginx/sites-available/SafeRAG" "$P2/etc/nginx/sites-available/"
+cp -f "$SCRIPT/nginx/sites-enabled/SafeRAG"   "$P2/etc/nginx/sites-enabled/"
 
 # systemd 服务 → /etc/systemd/system
 cp "$SCRIPT/systemd/"*.service "$P2/etc/systemd/system/"

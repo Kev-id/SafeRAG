@@ -5,7 +5,7 @@
 ```
 scripts/deploy/
 ├── make_deb.sh            打包器：一次产出两个 deb
-├── nginx/                 盒子 /etc/nginx 配置快照（整树铺到目标 /etc/nginx）
+├── nginx/                 SafeRAG 站点配置（铺到 /etc/nginx/sites-{available,enabled}/SafeRAG）
 ├── systemd/               三个服务（qwen/qwen_chat/saferag，铺到 /etc/systemd/system）
 └── debian/
     ├── app/   control postinst prerm conffiles    应用包控制脚本
@@ -47,7 +47,7 @@ bash scripts/deploy/make_deb.sh \
 
 ```bash
 dpkg -i saferag-models_1.0.0_arm64.deb    # ≈6G 模型 → /data2/models
-dpkg -i saferag_1.0.0_arm64.deb           # 代码→/data, nginx→/etc, 服务→systemd
+dpkg -i saferag_1.0.0_arm64.deb           # 代码→/data, nginx站点→/etc/nginx, 服务→systemd
 ```
 
 应用包 postinst 自动: 补装 nginx(offline-apt)→ 离线装 Python 依赖 → 生成
@@ -62,7 +62,8 @@ dpkg -i saferag_1.0.0_arm64.deb           # 代码→/data, nginx→/etc, 服务
 | `data2/models/Qwen3_5/*.bmodel` + `config/` | 引擎权重+config | `qwen.service`/`qwen_chat.service` ExecStart |
 | `data/SafeRAG/*` | 后端+引擎代码 | `saferag.service` WorkingDirectory |
 | `opt/emergency-platform/frontend/` | 前端静态 | `nginx sites-available/SafeRAG` root |
-| `etc/nginx/*`, `etc/systemd/system/*` | 系统配置 | 各服务/nginx |
+| `etc/nginx/sites-{available,enabled}/SafeRAG` | nginx 站点配置（不含 nginx 自带库存文件） | SafeRAG 80 默认站 |
+| `etc/systemd/system/*` | 系统服务 | qwen/qwen_chat/saferag |
 | `opt/saferag/wheels`, `opt/saferag/offline-apt` | 离线依赖 | 装机时消费 |
 
 ## 升级 / 回滚
@@ -76,4 +77,7 @@ dpkg -i saferag_1.0.0_arm64.deb           # 代码→/data, nginx→/etc, 服务
 - `--make-wheels` 在 x86 上跑会抓错轮子; 一定要 aarch64 环境
 - 目标机 python 必须是 **3.10 aarch64**(引擎 `.so` 硬绑定)
 - 模型 bmodel 文件名与 `qwen*.service` ExecStart 中的完整文件名必须一致(打包器会校验)
+- **nginx 配置只装 SafeRAG 站点, 不整树覆盖**——整树会把 nginx-common 的库存文件
+  (fastcgi.conf 等)一起塞进 deb, 在已装 nginx 的盒子上 `dpkg -i` 会报
+  `trying to overwrite ... which is also in package nginx-common`。首次遇到此错的重打一次即可。
 - 全新盒子知识库为空: 用前端上传接口添加法规文件; 或 `python3 scripts/build_knowledge_base.py` 重建索引
