@@ -7,15 +7,26 @@ DELETE /api/v1/files/{filename}    删除知识库文件
 """
 
 from typing import Optional
+import os
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from pydantic import BaseModel
 
 
 from backend.services import knowledge_service, operation_log_service
 from backend.repositories import kb_file_repo
-from backend.services.auth_service import perm_user_sys_sec_aud, perm_user_sys_sec, perm_sec
+from backend.services.auth_service import (
+    ROLE_SEC,
+    perm_user_sys_sec_aud, perm_user_sys_sec, perm_sys_sec_aud, perm_sec,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["knowledge"])
+
+# 敏感文件仅授权给 安全保密员 可读可下载；其余角色(含系统管理员/普通用户/审计员)不可见/不可下
+_SENSITIVE_READABLE = {ROLE_SEC}
+
+
+def _can_read_sensitive(role: str) -> bool:
+    return role in _SENSITIVE_READABLE
 
 
 class KbUploadResponse(BaseModel):
@@ -80,28 +91,41 @@ async def upload_file(
 async def list_files(file_type:Optional[str]=None, status: Optional[str]=None, keyword: Optional[str]=None, region: Optional[str]=None, city: Optional[str]=None, _user: dict = Depends(perm_user_sys_sec_aud)):
     """列出知识库文件（读登记册，权威源）。"""
     items = await knowledge_service.list_kb_files(file_type=file_type, status=status, keyword=keyword, region=region, city=city)
+    # 敏感文件对非授权角色（普通用户/审计员/系统管理员）完全隐藏
+    if not _can_read_sensitive(_user["role"]):
+        items = [i for i in items if not i.get("sensitive")]
     return [KbFileItem(**item) for item in items]
 
 
 @router.get("/files/{filename}", response_model=KbFileDetail)
 async def get_file(filename: str, _user: dict = Depends(perm_user_sys_sec_aud)):
-    """获取单个文件详情（元数据 + 正文）。"""
+    """获取单个文件详情（元数据 + 正文）。敏感文件对非授权角色返回 403。"""
     try:
         item = await knowledge_service.get_kb_file(filename)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    if item.get("sensitive") and not _can_read_sensitive(_user["role"]):
+        raise HTTPException(status_code=403, detail="无权限访问敏感文件")
     return KbFileDetail(**item)
 
 
 @router.delete("/files/{filename}", response_model=KbUploadResponse)
 async def delete_file(filename: str, request: Request, _user: dict = Depends(perm_user_sys_sec)):
-    """删除知识库文件：索引 + 磁盘 + 登记册。"""
+    """删除知识库文件：索引 + 磁盘 + 登记册。
+
+    普通/系统管理员可删除常规文件（所见即所得）；敏感文件仅安全保密员可删。"""
+    safe_name = os.path.basename(filename)
+    item = kb_file_repo.get(safe_name)
+    if item is None:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    if item.get("sensitive") and not _can_read_sensitive(_user["role"]):
+        raise HTTPException(status_code=403, detail="无权限删除敏感文件")
     try:
-        result = await knowledge_service.delete_kb_file(filename)
+        result = await knowledge_service.delete_kb_file(safe_name)
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
     ip = request.client.host if request.client else ""
-    operation_log_service.record_user(_user, "delete_kb_file", target=filename, ip=ip)
+    operation_log_service.record_user(_user, "delete_kb_file", target=safe_name, ip=ip)
     return result
 
 
@@ -124,6 +148,6 @@ async def set_sensitive(filename: str, body: SensitiveUpdate, request: Request, 
 
 
 @router.get("/kb/stats", response_model=KbStatsResponse)
-async def get_kb_stats(_user: dict = Depends(perm_user_sys_sec_aud)):
-    """获取知识库统计信息"""
+async def get_kb_stats(_user: dict = Depends(perm_sys_sec_aud)):
+    """获取知识库统计信息（后台监控用：系统/安全/审计三员可见，普通用户不可见）"""
     return knowledge_service.get_stats()
