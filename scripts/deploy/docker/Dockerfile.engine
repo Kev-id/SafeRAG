@@ -1,0 +1,35 @@
+# =============================================================================
+# SafeRAG Qwen 引擎镜像 —— 纯"引擎代码"镜像, 可跨同架构(aarch64)机移植。
+# 一个镜像喂两个容器: qwen-doc(4B,8000) / qwen-chat(2B,8001), 命令在 compose 里区分。
+#
+# 关键设计: 不烤 Sophon 运行时(libsophon)。
+#   libbmrt/libbmlib 必须与盒子内核 NPU 驱动同版本, 而驱动是每台盒子配对的;
+#   改成"运行时挂载"—— compose 把宿主 /opt/sophon/libsophon-current/lib 挂进容器
+#   并设 LD_LIBRARY_PATH, 每台盒子用自己的运行时, 镜像本身永不因驱动版本重建。
+#
+# 构建上下文 = build_images.sh 临时组装, 只有 python_demo/(含编译好的 chat.so)。
+#   chat.so 是 cpython-310-aarch64 扩展, 编译一次通用于同架构同 py 版本, 不用每台重编。
+# ⚠ 严禁把 /data2/models(17G) 或仓库根带进构建上下文。
+# =============================================================================
+FROM python:3.10-slim-bookworm
+
+# 引擎代码 + 编译好的 chat.so
+COPY python_demo/ /app/python_demo/
+WORKDIR /app/python_demo
+
+# 引擎 Python 依赖(与 backend/requirements.txt ③ 组一致; 盒子无 torch, 勿装 torch)
+RUN pip install --no-cache-dir \
+        fastapi==0.141.1 \
+        'uvicorn[standard]==0.52.1' \
+        pydantic==2.13.4 \
+        numpy==2.2.6 \
+        Pillow==12.3.0 \
+        jinja2==3.1.6 \
+        PyYAML==6.0.3 \
+        transformers==5.14.1 \
+        tokenizers==0.22.2
+
+# 模型不进镜像: 运行时 -v /data2/models:/models:ro 挂载
+# libsophon 不进镜像: 运行时由宿主挂载 + LD_LIBRARY_PATH(见 docker-compose.yml)
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1

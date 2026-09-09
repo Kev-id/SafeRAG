@@ -1,0 +1,74 @@
+# =============================================================================
+# SafeRAG 容器编排 —— 全部 host 网络(与 systemd 时代同一套 127.0.0.1:8000/8001/8081 拓扑,
+# 后端代码里 QWEN_*_URL 写死 127.0.0.1, 零改动)。
+#
+# 使用(在盒子上):
+#   bash scripts/deploy/docker/build_images.sh 1.0.0   # 首次或改代码后先构建
+#   cd scripts/deploy/docker && docker compose up -d
+# 前提: 已停掉宿主 systemd 的 qwen/qwen_chat/saferag/nginx(见本目录 README 切换一节)
+#
+# 说明:
+#   - qwen-doc / qwen-chat 共用 saferag-qwen 镜像, 透传 NPU 设备 + 挂载 /data2/models
+#   - backend 持 JWT_SECRET, 默认沿用盒子现状(默认弱密钥); 收紧见 README.md
+#   - nginx 直接用官方镜像, 前端静态页与站点配置都只挂载、不烤进镜像
+# =============================================================================
+x-npu: &npu
+  network_mode: host
+  restart: unless-stopped
+  devices:
+    - /dev/bm-tpu0:/dev/bm-tpu0
+    - /dev/bmdev-ctl:/dev/bmdev-ctl
+    - /dev/ion:/dev/ion
+  shm_size: 2g
+  environment:
+    # 运行时用宿主自己的 libsophon(与驱动版本配对), 不烤进镜像
+    LD_LIBRARY_PATH: /opt/sophon/libsophon-current/lib
+
+# 引擎容器共用的挂载: 宿主 libsophon(rw 不需要, ro 够) + 模型(ro)
+x-eng-volumes: &eng-volumes
+  - /opt/sophon/libsophon-current/lib:/opt/sophon/libsophon-current/lib:ro
+  - /data2/models:/models:ro
+
+services:
+  qwen-doc:
+    <<: *npu
+    image: saferag-qwen:1.0.0
+    container_name: qwen-doc
+    volumes: *eng-volumes
+    command: python server.py -m /models/Qwen3_5/qwen3.5-4b_w4bf16_bm1688.bmodel -c /models/Qwen3_5/config --host 127.0.0.1 --port 8000
+
+  qwen-chat:
+    <<: *npu
+    image: saferag-qwen:1.0.0
+    container_name: qwen-chat
+    volumes: *eng-volumes
+    command: python server.py -m /models/Qwen3_5/qwen3.5-2b-int4-autoround_w4bf16_seq8192_bm1688_2core_history_dynamic_20260728_111707.bmodel -c /models/Qwen3_5/config --host 127.0.0.1 --port 8001
+
+  backend:
+    image: saferag-backend:1.0.0
+    container_name: saferag-backend
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      # 与宿主现状保持一致(盒子无 /etc/saferag/api.env, 一直用默认密钥, 升级不踢登录);
+      # 想收紧: cp .env.example .env 改 JWT_SECRET, 然后 docker compose up -d 重建 backend
+      JWT_SECRET: "${JWT_SECRET:-saferag-dev-secret-please-change-in-prod}"
+      QWEN_CONNECT_TIMEOUT: "5"
+      QWEN_READ_TIMEOUT: "600"
+      QWEN_MAX_TOKENS: "4096"
+    volumes:
+      - /data2/models:/models:ro
+      - /data/SafeRAG/backend/data:/data/saferag/backend/data
+
+  nginx:
+    image: nginx:alpine
+    container_name: saferag-nginx
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - qwen-doc
+      - qwen-chat
+      - backend
+    volumes:
+      - /data2/www/emergency-platform/frontend:/usr/share/nginx/html:ro
+      - ./nginx/saferag.conf:/etc/nginx/conf.d/default.conf:ro

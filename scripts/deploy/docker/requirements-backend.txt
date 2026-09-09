@@ -1,0 +1,24 @@
+# =============================================================================
+# SafeRAG 后端容器依赖 —— backend/requirements.txt 的"后端"子集。
+# 引擎专属依赖(transformers/Pillow/jinja2/PyYAML)在 Dockerfile.engine 里装, 不混进后端镜像。
+# 测试专用 pytest 不进运行时镜像。
+# =============================================================================
+
+# --- ① Web / API ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+httpx==0.28.1
+pydantic==2.13.4
+pydantic_core==2.46.4
+python-multipart==0.0.32
+PyJWT==2.10.1
+
+# --- ② RAG / 文档处理 ---
+onnxruntime==1.23.2
+chromadb==1.5.9
+jieba==0.42.1
+rank_bm25==0.2.2
+python-docx==1.2.0
+pypdf==6.16.2
+tokenizers==0.22.2
+numpy==2.2.6

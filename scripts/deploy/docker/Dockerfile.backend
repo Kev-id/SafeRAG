@@ -1,0 +1,27 @@
+# =============================================================================
+# SafeRAG 后端镜像 —— arm64。在盒子上构建(aarch64)。
+# 构建上下文 = build_images.sh 临时组装: backend/ + requirements-backend.txt
+# 运行时:
+#   /data2/models                       → /models                 只读(embedding/reranker)
+#   /data/SafeRAG/backend/data           → /data/saferag/backend/data  读写(库/文档/账号)
+# 环境变量: 见 docker-compose.yml 的 environment(与后端 backend/core/config.py 对应)
+# =============================================================================
+FROM python:3.10-slim-bookworm
+
+WORKDIR /app
+COPY requirements-backend.txt /app/requirements-backend.txt
+RUN pip install --no-cache-dir -r /app/requirements-backend.txt
+
+COPY backend/ /app/backend/
+
+ENV PYTHONPATH=/app \
+    QWEN_DOC_URL=http://127.0.0.1:8000 \
+    QWEN_CHAT_URL=http://127.0.0.1:8001 \
+    QWEN_DOC_MODEL=tpu-qwen3.5-4B \
+    QWEN_CHAT_MODEL=tpu-qwen3.5-2B \
+    EMBEDDING_MODEL_PATH=/models/bge-small-zh-v1.5 \
+    RERANKER_MODEL_PATH=/models/bge-reranker-base \
+    DATA_DIR=/data/saferag/backend/data
+
+EXPOSE 8081
+CMD ["uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8081"]
