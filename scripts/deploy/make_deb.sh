@@ -247,6 +247,7 @@ sed -i "s/@VERSION@/$VERSION/g; s/@ARCH@/$ARCH/g" "$P2/DEBIAN/control"
 cp "$SCRIPT/debian/app/postinst"  "$P2/DEBIAN/postinst"
 cp "$SCRIPT/debian/app/prerm"     "$P2/DEBIAN/prerm"
 cp "$SCRIPT/debian/app/conffiles" "$P2/DEBIAN/conffiles"
+[ "$(tail -c 1 "$P2/DEBIAN/conffiles")" = "$(printf '\n')" ] || printf '\n' >> "$P2/DEBIAN/conffiles"
 chmod 755 "$P2/DEBIAN/postinst" "$P2/DEBIAN/prerm"
 
 ADEB="$OUT_DIR/saferag_${VERSION}_${ARCH}.deb"
