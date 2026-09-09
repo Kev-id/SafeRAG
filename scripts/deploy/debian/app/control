@@ -1,0 +1,8 @@
+Package: saferag
+Version: @VERSION@
+Section: misc
+Priority: optional
+Architecture: @ARCH@
+Depends: saferag-models (>= @VERSION@), python3, python3-pip
+Maintainer: SafeRAG <dev@saferag.local>
+Description: SafeRAG 安全生产 AI 报告生成服务 —— 后端 + Qwen 推理引擎 + 前端 + 全离线依赖

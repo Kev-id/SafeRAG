@@ -1,0 +1,14 @@
+# qwen-chat.service
+[Unit]
+Description=Qwen chat engine (multimodal)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/SafeRAG/Qwen3_5/python_demo
+ExecStart=/usr/bin/python3 server.py -m /data2/models/Qwen3_5/qwen3.5-2b-int4-autoround_w4bf16_seq8192_bm1688_2core_history_dynamic_20260728_111707.bmodel -c /data2/models/Qwen3_5/config --port 8001
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target

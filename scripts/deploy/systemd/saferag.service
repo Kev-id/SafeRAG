@@ -1,0 +1,24 @@
+[Unit]
+Description=SafeRAG Backend API
+After=network-online.target qwen.service
+Wants=network-online.target
+Wants=qwen.service
+
+[Service]
+Type=simple
+# api.env 由 deb postinst 生成：EMBEDDING/RERANKER 模型路径、DATA_DIR、JWT_SECRET 等
+EnvironmentFile=/etc/saferag/api.env
+WorkingDirectory=/data/SafeRAG
+ExecStart=/usr/local/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8081
+
+Environment=QWEN_DOC_URL=http://127.0.0.1:8000
+Environment=QWEN_CHAT_URL=http://127.0.0.1:8001
+Environment=QWEN_DOC_MODEL=tpu-qwen3.5-4B
+Environment=QWEN_CHAT_MODEL=tpu-qwen3.5-2B
+
+Restart=on-failure
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target

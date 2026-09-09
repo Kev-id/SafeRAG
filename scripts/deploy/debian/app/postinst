@@ -1,0 +1,73 @@
+#!/bin/bash
+# SafeRAG app 安装后脚本：补系统包 → 装 Python 依赖(离线) → 生成配置 → 起服务 → nginx
+set -e
+
+# ---------- 1) 补装系统包（nginx 及依赖，离线优先） ----------
+if ! command -v nginx >/dev/null 2>&1; then
+  if ls /opt/saferag/offline-apt/*.deb >/dev/null 2>&1; then
+    echo "== 离线安装 nginx 及依赖（offline-apt/）"
+    dpkg -i /opt/saferag/offline-apt/*.deb 2>/dev/null || apt-get -f install -y
+  else
+    echo "!! 目标机没有 nginx 且包内无 offline-apt/；请先 apt install nginx 再重跑本脚本"
+  fi
+fi
+
+# ---------- 2) Python 依赖（离线 wheels 优先，其次在线） ----------
+echo "== 安装 Python 依赖（离线优先）"
+if ls /opt/saferag/wheels/*.whl >/dev/null 2>&1; then
+  python3 -m pip install --no-index --find-links /opt/saferag/wheels \
+    -r /data/SafeRAG/backend/requirements.txt
+else
+  python3 -m pip install -r /data/SafeRAG/backend/requirements.txt
+fi
+
+# ---------- 3) 配置 / 数据目录骨架 ----------
+mkdir -p /etc/saferag \
+         /data/SafeRAG/backend/data/kb_source \
+         /data/SafeRAG/backend/data/kb \
+         /data/SafeRAG/backend/data/documents
+if [ ! -f /etc/saferag/api.env ]; then
+  umask 077
+  cat > /etc/saferag/api.env <<EOF
+HOST=0.0.0.0
+PORT=8081
+DATA_DIR=/data/SafeRAG/backend/data
+QWEN_DOC_URL=http://127.0.0.1:8000
+QWEN_CHAT_URL=http://127.0.0.1:8001
+QWEN_DOC_MODEL=tpu-qwen3.5-4B
+QWEN_CHAT_MODEL=tpu-qwen3.5-2B
+EMBEDDING_MODEL_PATH=/data2/models/bge-small-zh-v1.5
+RERANKER_MODEL_PATH=/data2/models/bge-reranker-base
+QWEN_ENGINE_CMDLINE_MARKER=Qwen3_5/python_demo/server.py
+JWT_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+EOF
+  echo "== 已生成 /etc/saferag/api.env（JWT 随机）"
+else
+  echo "== 复用已有 /etc/saferag/api.env（升级不换 JWT）"
+fi
+
+# ---------- 4) 启服务 ----------
+systemctl daemon-reload
+systemctl enable --now qwen.service qwen_chat.service saferag.service || \
+  echo "!! 服务启动有失败项，请看: systemctl status qwen qwen_chat saferag"
+
+# ---------- 5) nginx ----------
+if command -v nginx >/dev/null 2>&1; then
+  # SafeRAG 站点是 80 默认站; 若盒子上还有 nginx 自带的 default 站(同为 default_server)
+  # 二者会配置冲突导致 nginx -t 失败 → 先停用它(重命名备份, 幂等可重复安装)
+  if [ -e /etc/nginx/sites-enabled/default ]; then
+    mv /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/default.disabled-by-saferag
+    echo "== 已停用 nginx 自带 default 站点(→ default.disabled-by-saferag)"
+  fi
+  if nginx -t >/dev/null 2>&1; then
+    systemctl restart nginx || true
+  else
+    nginx -t || echo "!! nginx 配置校验失败，人工检查 /etc/nginx/"
+  fi
+fi
+
+echo "== ✅ 安装完成"
+echo "   前端:     http://<盒子IP>/"
+echo "   API 文档: http://<盒子IP>/docs"
+echo "   服务:     systemctl status qwen qwen_chat saferag"
+echo "   知识库:   空时用上传接口添加文件；或 scripts/build_knowledge_base.py 重建索引"

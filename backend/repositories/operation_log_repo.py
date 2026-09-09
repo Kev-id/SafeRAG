@@ -47,8 +47,9 @@ def _build_where(
     conds: list[str] = []
     params: list = []
     if username:
-        conds.append("username = ?")
-        params.append(username)
+        # 用户名模糊匹配：可输入完整用户名，也可输入部分字符（大小写不敏感）
+        conds.append("username LIKE ? COLLATE NOCASE")
+        params.append(f"%{username}%")
     if action:
         conds.append("action = ?")
         params.append(action)
