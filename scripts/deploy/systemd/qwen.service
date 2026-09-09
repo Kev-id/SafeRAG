@@ -1,0 +1,16 @@
+[Unit]
+Description=Qwen3.5 LLM Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/SafeRAG/Qwen3_5/python_demo
+ExecStart=/usr/bin/python3 server.py -m /data2/models/Qwen3_5/qwen3.5-4b_w4bf16_bm1688.bmodel  -c /data2/models/Qwen3_5/config --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=10
+User=root
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
