@@ -8,6 +8,8 @@
 #   - docker 19.03 / 20.10 都能跑(裸 docker run, 不需要 compose v2)
 #   - 1688 / 1684x 通用: 自动探测 bmodel(4B 做文档, 有 2B 则对话用它, 否则同用 4B)
 #     + 只透传实际存在的 /dev/bm* 节点(节点随板卡而异)
+#   - (可选) 同目录带 ufw_firewall.sh 时, 装完自动跑防火墙(默认放行 192.168.0.0/16 的 22/80;
+#     网段不同用 ETH_CIDR=<网段> 覆盖; 想跳过 FIREWALL_SKIP=1)
 # 幂等: 先清同名旧容器再重建; 重复执行安全。
 # =============================================================================
 set -euo pipefail
@@ -99,6 +101,15 @@ done
 echo "  4B: ${h4:-未就绪}   2B/对话: ${h2:-未就绪}"
 echo "  前端: $(curl -s -o /dev/null -w '%{http_code}' -m 5 http://127.0.0.1/ 2>/dev/null || echo 超时)"
 echo "  docs: $(curl -s -o /dev/null -w '%{http_code}' -m 5 http://127.0.0.1/docs 2>/dev/null || echo 超时)"
+
+echo "== 7/7 (可选)防火墙 =="
+if [ -f "$SCRIPT_DIR/ufw_firewall.sh" ] && [ "${FIREWALL_SKIP:-0}" != "1" ]; then
+  echo "  运行 ./ufw_firewall.sh: 默认拒绝入站, 放行 ${ETH_CIDR:-192.168.0.0/16} 的 22/80"
+  echo "  (网段不同请 ETH_CIDR=<网段> ./install.sh 覆盖; 想跳过 FIREWALL_SKIP=1 ./install.sh)"
+  bash "$SCRIPT_DIR/ufw_firewall.sh" "${ETH_CIDR:-}"
+else
+  echo "  跳过(包里无 ufw_firewall.sh 或 FIREWALL_SKIP=1)"
+fi
 echo
 echo "== ✅ 完成 =="
 echo "  前端 http://<盒子IP>/   API 文档 http://<盒子IP>/docs   引擎状态: bm-smi"
