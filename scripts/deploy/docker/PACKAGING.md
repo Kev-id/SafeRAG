@@ -1,68 +1,84 @@
-# Docker 打包流程(在源环境产出可搬的镜像)
+# Docker 打包流程(在源环境产出「部署文件夹」)
 
-> 本文件只讲**怎么打**出能搬走的产物;怎么在一台新盒子上跑起来,见 [DEPLOYING.md](DEPLOYING.md)。
-> 打包 ≠ 部署:打包在**源环境**做(任何 aarch64 + 有网 + docker),产出物是镜像 tar 和一份清单。
+> 打包 ≠ 部署:打包在**源环境**做(任意 aarch64 + 有网 + docker),产出物是一个**自包含的
+> 「部署文件夹」**,拷到目标盒子,`sudo bash install.sh` 就起来。怎么跑见 [DEPLOYING.md](DEPLOYING.md)。
 
-## 0. 打包成果物(要拿到的东西)
+## 0. 打包成果物:一个「部署文件夹」
 
-| # | 产物 | 来源 | 流向 |
-|---|---|---|---|
-| ① | `saferag-images.tar.gz` | 下面 §2 打 | → 目标盒 `docker load` |
-| ② | `scripts/deploy/docker/`(compose + nginx conf + 构建脚本) | 仓库 | → 目标盒(部署只用到 compose + `nginx/saferag.conf`) |
-| ③ | 模型 `/data2/models` | 源盒/模型包 | → 目标盒同一路径 |
-| ④ | 前端 `/data2/www/emergency-platform/frontend` | 源盒 | → 目标盒同一路径 |
-| ⑤ |(可选)运行数据 `/data/SafeRAG/backend/data` | 源盒 | → 目标盒同一路径 |
+标准形态(文件夹自包含, 模型/前端都在里面, 拷到哪都能跑):
 
-核心是两个自建镜像 `saferag-backend` + `saferag-qwen`。**引擎镜像可移植** —— 它不烤 Sophon
-运行时(NPU),运行时在部署时由每个盒子挂载自己 `/opt/sophon/libsophon-current/lib`,所以
-镜像本身跨同架构机直接跑,不因驱动版本重建。
+```
+saferag-1688/                          ← 部署文件夹(bundle)
+├── saferag-images.tar.gz              三镜像: backend / qwen / nginx:alpine(一个包)
+├── docker-compose.yml                 自包含相对路径版(挂载 ./models ./emergency-platform/frontend)
+├── install.sh                         一键部署脚本
+├── nginx/saferag.conf                 与 compose 同目录(compose 相对引用)
+├── models/                            ← 模型, 命名必须 bge-small-zh-v1.5
+│   ├── Qwen3_5/
+│   │   ├── config/  tokenizer.json / chat_template.jinja ...
+│   │   ├── qwen3.5-4b_w4bf16_bm1688.bmodel
+│   │   └── qwen3.5-2b-int4-..._111707.bmodel
+│   ├── bge-small-zh-v1.5/             ← 必须叫 v1.5(后端固定只找这个名字)
+│   └── bge-reranker-base/
+└── emergency-platform/frontend/       前端(index.html 等)
+```
+
+**不放进文件夹、留在宿主的**:`/opt/sophon/libsophon-current`(NPU 运行时, 与盒子驱动配对)、
+`/dev/bm*` 设备、(可选)后端运行数据 `/data/SafeRAG/backend/data`。
 
 ## 1. 准备打包环境
 
-- aarch64 环境 + docker(`docker --version`)—— 在本项目就是 BM1688 盒子,也可以是别的 arm64 机
-- 能访问 docker hub 与 pypi(打不了就配代理,见 DEPLOYING.md §1.3)
-- 有代码:至少含 `backend/`、`Qwen3_5/python_demo/`、`scripts/deploy/docker/`
-  (git clone, 或从源盒 `rsync -a --exclude backend/data --exclude models linaro@<源盒>:/data/SafeRAG/ ...`)
+- aarch64 + docker + 能访问 docker hub 与 pypi(拉不到就配代理, 见 DEPLOYING.md §1.3)
+- 有代码:`backend/`、`Qwen3_5/python_demo/`、`scripts/deploy/docker/`
+  (git clone, 或从源盒 `rsync -a --exclude backend/data --exclude models ...`)
 
 ## 2. 构建镜像
 
 ```bash
 cd <仓库目录>
 bash scripts/deploy/docker/build_images.sh 1.0.0
-docker images | grep saferag
-# → saferag-backend:1.0.0   saferag-qwen:1.0.0
+docker images | grep saferag        # → saferag-backend:1.0.0  saferag-qwen:1.0.0
 ```
 
-- 脚本临时组装干净上下文(只拷 python_demo / backend + 依赖清单,不含 17G 模型),避免把模型拖进 build。
-- **引擎镜像不需要在目标盒构建、不需要为目标盒驱动版本重建**;只有当 `Qwen3_5/python_demo/`
-  代码或 Python 依赖变更时才重建引擎镜像;`backend/` 变更才重建后端镜像。
-- 换代码重建后,记得用**同一版本号**重打 tar(见 §3/§4 一致性)。
+- 引擎镜像可移植:不烤 libsophon,运行时每个盒子挂自己 `/opt/sophon/libsophon-current`。
+- 只在改代码后才重建:`backend/` 变更重建 backend;`Qwen3_5/python_demo/` 变更重建 qwen。
 
-## 3. 打镜像 tar(可搬走)
+## 3. 打镜像 tar(三个镜像一个包)
 
 ```bash
+# ⚠ compose 的 nginx 服务直接引用 nginx:alpine, 必须进 tar:
+#   docker images | grep nginx   没有就先: docker pull nginx:alpine
 mkdir -p ~/safe && cd ~/safe
-docker save saferag-backend:1.0.0 saferag-qwen:1.0.0 | gzip > saferag-images.tar.gz
-ls -lh saferag-images.tar.gz
+docker save saferag-backend:1.0.0 saferag-qwen:1.0.0 nginx:alpine | gzip > saferag-images.tar.gz
+ls -lh saferag-images.tar.gz       # ≈ 810M
 ```
 
-- nginx 用官方镜像,通常不打包:目标盒联网即可拉 `nginx:alpine`。
-  **若目标盒可能离线**,也一并打走:`docker save nginx:alpine | gzip >> ...`(或单独 tar)。
-- 全离线模式:把 `scripts/deploy/docker/nginx/saferag.conf` 和 compose 一起带着就行。
+> 只打两个镜像 → 目标机 `compose up` 会去 registry 拉 nginx,拉不到(`EOF`)整个卡死——已实测踩过。
 
-## 4. 版本一致性与自查
-
-- 构建版本号 → compose 里 `image: saferag-<x>:<v>` 的标签必须一致。
-- 打包完自查:
+## 4. 组装「部署文件夹」
 
 ```bash
-gunzip -c saferag-images.tar.gz | docker load   # 在别的机器上能 load 出来
-docker images | grep saferag
+mkdir -p saferag-1688/nginx saferag-1688/emergency-platform
+cp ~/safe/saferag-images.tar.gz                        saferag-1688/
+cp scripts/deploy/docker/docker-compose.yml            saferag-1688/
+cp scripts/deploy/docker/install.sh                    saferag-1688/
+cp scripts/deploy/docker/nginx/saferag.conf            saferag-1688/nginx/
+cp -a <模型目录>/models/*                              saferag-1688/models/     # Qwen3_5 + bge-*(embedding 用 v1.5 名)
+cp -a <前端目录>                                       saferag-1688/emergency-platform/frontend/
 ```
 
-## 5. 传输
+- 模型里的 embedding 目录**必须命名为 `bge-small-zh-v1.5`**(后端/镜像固定找这个名字)。
+- 可选迁移:已有运行数据的话, `cp -a <盒子>/data/SafeRAG/backend/data saferag-1688/data`
+  (install.sh 检测到 `data/` 就拷到目标机 `/data/SafeRAG/backend/data`)。
 
-按 DEPLOYING.md §3 把 ①②③④⑤ 传到目标盒(rsync / scp / U 盘均可)。
+## 5. 版本一致性与自查
+
+- compose 里 `image: saferag-<x>:<v>` 与构建的版本号一致。
+- load 自查:tar 应能恢复 3 个镜像(尤其 `nginx:alpine`)。
+
+## 6. 传过去
+
+把整个 `saferag-1688/` 文件夹拷到目标盒子(rsync / scp / U 盘),然后按 DEPLOYING.md 跑 `sudo bash install.sh`。
 
 ---
 
@@ -70,6 +86,7 @@ docker images | grep saferag
 
 | 现象 | 原因/处理 |
 |---|---|
-| build 卡在 "Sending build context" 巨大 | 上下文带进了模型/仓库根; 确认从 `scripts/deploy/docker/` 的 `build_images.sh` 跑, 它组装干净上下文 |
-| 拉基础镜像失败 | 网络/代理问题, 见 DEPLOYING.md §1.3 给 daemon 配代理 |
-| 换芯片(BM1684X) | **镜像本身不用重打**; 只需在目标盒换对应 bmodel 与设备节点(见 DEPLOYING.md 常见坑) |
+| build 卡在 "Sending build context" 巨大 | 上下文带进了模型/仓库根; 用 `build_images.sh` 它会组装干净上下文 |
+| 拉基础镜像失败 | 网络/代理, 见 DEPLOYING.md §1.3 |
+| 目标机 `up` 卡在拉 nginx | tar 少了 `nginx:alpine`, 重打三镜像 tar |
+| 换芯片(BM1684X) | 镜像不重打; 换目标盒对应 bmodel 与 `devices:` 列表(DEPLOYING.md 常见坑) |

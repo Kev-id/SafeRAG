@@ -1,11 +1,14 @@
 # SafeRAG Docker 部署(盒子: BM1688 / Ubuntu 22.04 / arm64)
 
 > **三份文档分工**:
-> - [PACKAGING.md](PACKAGING.md) —— 打包流程:在源环境产出可搬的镜像 tar 和清单
-> - [DEPLOYING.md](DEPLOYING.md) —— 部署流程:目标盒子上把系统跑起来(假设传输物已在盒上)
-> - 本文档 —— 在本机(已跑着 systemd 的盒子)从 systemd 切到 Docker 的构建/切换/回滚
+> - [PACKAGING.md](PACKAGING.md) —— 打包流程:在源环境产出「部署文件夹」
+> - [DEPLOYING.md](DEPLOYING.md) —— 部署流程:目标盒子上把系统跑起来(假设部署文件夹已在盒上)
+> - 本文档 —— 本机(盒子)从 systemd 切到 Docker 的构建/切换/回滚
 >
-> 搬新机 = 先看 PACKAGING 再照 DEPLOYING。
+> **当前标准是「自包含部署文件夹」**(compose 用相对路径挂 `./models` / `./frontend`, 见 PACKAGING/DEPLOYING)。
+> 本文档里 `/data2/models` 这类绝对路径是**本盒早前部署的历史快照**,本机若想把部署目录升级成
+> 自包含版,在部署目录里 `ln -s /data2/models models`、`ln -s /data2/www/emergency-platform/frontend emergency-platform/frontend`
+> 即可让相对路径 compose 直接复用现有模型/前端。
 
 把盒子上的 SafeRAG 从 systemd 三服务迁到 Docker。四个容器, 全网 host, 与 systemd
 时代同一套 `127.0.0.1:8000/8001/8081 + 宿主 80` 拓扑, 后端代码零改动。
