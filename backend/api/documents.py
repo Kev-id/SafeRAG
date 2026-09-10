@@ -13,7 +13,7 @@ from starlette.background import BackgroundTask
 
 from backend.core import doc_exporter
 from backend.services import document_service, operation_log_service
-from backend.services.auth_service import perm_user_sys_sec_aud, perm_user_sys_sec
+from backend.services.auth_service import perm_user_sys_sec_aud, perm_user_sys_sec, perm_sys_sec_aud
 from backend.repositories.document_repo import report_path, DocStatus
 
 router = APIRouter(prefix="/api/v1", tags=["documents"])
@@ -75,7 +75,7 @@ class DocumentStatsResponse(BaseModel):
 # 端点
 # ---------------------------------------------------------------------------
 @router.get("/documents/stats", response_model=DocumentStatsResponse)
-async def get_document_stats(_user: dict = Depends(perm_user_sys_sec_aud)):
+async def get_document_stats(_user: dict = Depends(perm_sys_sec_aud)):
     """获取文档处理统计信息"""
     stats = await document_service.get_stats()
     return DocumentStatsResponse(
