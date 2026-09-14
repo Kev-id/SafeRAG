@@ -21,6 +21,15 @@ cd "$SCRIPT_DIR"
 [ "$(id -u)" -eq 0 ] || { echo "!! 需 root: sudo bash $0"; exit 1; }
 command -v docker >/dev/null || { echo "!! 未装 docker"; exit 1; }
 
+# 保险: 确保 dockerd 随开机启动, 否则"重启后容器不自启, 敲 docker 命令才被 socket 激活拉起"
+if command -v systemctl >/dev/null 2>&1; then
+  if ! systemctl is-enabled docker.service >/dev/null 2>&1; then
+    echo "  ⚠ docker.service 未设随开机启动(重启后容器不会自启), 正在 enable:"
+    systemctl enable docker.service 2>&1 | sed 's/^/    /' \
+      || echo "  (enable 失败, 请手动: sudo systemctl enable docker.service)"
+  fi
+fi
+
 echo "== 1/6 预检 =="
 [ -f saferag-images.tar.gz ] || { echo "!! 缺 saferag-images.tar.gz"; exit 1; }
 [ -d models/Qwen3_5 ] || { echo "!! 缺 models/Qwen3_5"; exit 1; }

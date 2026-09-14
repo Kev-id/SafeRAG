@@ -157,6 +157,7 @@ cd <部署文件夹> && docker compose down      # 停容器(运行数据在宿�
 | embedding 加载失败 | `models/` 里 embedding 目录名不是 `bge-small-zh-v1.5`(改名后重 up) |
 | 知识库空 | 运行数据没放/没挂; 用前端上传或 `scripts/build_knowledge_base.py` 重建 |
 | 盒子没装 docker-compose | 直接 `sudo bash install.sh`, 它用裸 docker run, 不需要 compose; 也可 `apt-get install -y docker-compose`(v1 也能跑 compose 文件) |
+| 重启后容器不自启, 敲任意 docker 命令才被拉起 | `docker.service` 没设随开机启动(只有 `docker.socket` 的套接字激活); `sudo systemctl enable docker.service` 即可; install.sh 预检已自动处理 |
 | 引擎容器 `import chat` 报符号/soname 错误 | 镜像里 chat.so 与盒子 libsophon 版本不兼容(不同代 SDK); 在该机用自己的 `Qwen3_5/python_demo` 重新构建 chat.so 后重打引擎镜像, 或用该机自带的 python_demo 替代 |
 | `compose up`/`install.sh` 报 80 被占 | 板卡自带 nginx 常占 80: `sudo systemctl stop nginx` 后重跑 |
 | 换芯片(BM1684X) | 换该芯片 bmodel(部署文件夹 models/ 里放 1684x 版); `devices:` 按目标机 `ls /dev/bm*` 调(install.sh 自动按存在透传); 必要时 `--privileged`; 镜像不重打 |
