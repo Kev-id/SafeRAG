@@ -1,0 +1,32 @@
+# =============================================================================
+# SafeRAG CI 测试依赖（L1 单元门禁 + L2 应用导入冒烟）
+#
+# 与 backend/requirements.txt 版本严格对齐；分组说明见 docs/CI-PLAN.md。
+# 为什么不用完整 requirements.txt：
+#   ① L1 单元测试只碰被测模块（legal_parser / repos / auth / template），
+#      它们的 import 图只到 fastapi + pydantic + PyJWT，装完整栈白白变慢。
+#   ② L2 `import backend.main` 额外只拉 RAG 检索组——embedding 客户端是懒加载，
+#      无模型文件也能安全 import，不需要 transformers（③组只给视觉 demo）。
+#
+# 分层:
+#   L1（快）: fastapi / pydantic / pydantic_core / pytest / PyJWT
+#   L2（+重件, 走 pip 缓存）: httpx / python-multipart / numpy / onnxruntime /
+#                             tokenizers / chromadb / jieba / rank_bm25
+# =============================================================================
+
+# --- L1 单元门禁 ---
+fastapi==0.141.1
+pydantic==2.13.4
+pydantic_core==2.46.4
+pytest==9.1.1
+PyJWT==2.10.1
+
+# --- L2 应用导入冒烟（import backend.main 需要的模块级依赖） ---
+httpx==0.28.1
+python-multipart==0.0.32
+numpy==2.2.6
+onnxruntime==1.23.2
+tokenizers==0.22.2
+chromadb==1.5.9
+jieba==0.42.1
+rank_bm25==0.2.2

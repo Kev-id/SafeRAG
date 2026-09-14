@@ -1,0 +1,75 @@
+# =============================================================================
+# SafeRAG Release — 打 tag 自动出源码发布包
+#
+# 触发: push tag v*（如 git tag v0.2.0 && git push --tags）
+# 产物: 源码 tarball（排除 data/models/Qwen3_5 等大件与运行数据）挂到 GitHub Release。
+#
+# 重要边界（见 docs/CI-PLAN.md §五）:
+#   盒子侧产物（镜像 tar / deb / 前端包）必须在本机构架（aarch64 + 模型 + 前端目录）
+#   用 scripts/deploy/docker/build_images.sh / scripts/deploy/make_deb.sh 产出，
+#   GitHub 托管 runner 产不了。Release body 里会带出这两条命令，按步骤在盒子上完成。
+# =============================================================================
+
+name: Release
+
+on:
+  push:
+    tags: [ "v*" ]
+
+permissions:
+  contents: write
+
+jobs:
+  source-release:
+    name: 源码发布包
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 从 tag 解析版本号
+        id: meta
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: 组装源码 tarball（排除运行数据/大模型/编译产物）
+        run: |
+          VERSION="${{ steps.meta.outputs.VERSION }}"
+          tar \
+            --exclude='./.git' \
+            --exclude='./backend/data' \
+            --exclude='./models' \
+            --exclude='./Qwen3_5' \
+            --exclude='./.pytest_cache' \
+            --exclude='**/__pycache__' \
+            --exclude='*.pyc' \
+            --transform="s,^\./,saferag-${VERSION}/," \
+            -czf "saferag-source-${VERSION}.tar.gz" .
+
+      - name: 建 GitHub Release 并挂附件
+        uses: softprops/action-gh-release@v2
+        with:
+          files: saferag-source-*.tar.gz
+          body: |
+            ## SafeRAG ${{ steps.meta.outputs.VERSION }}
+
+            ### 源码包
+            `saferag-source-${{ steps.meta.outputs.VERSION }}.tar.gz` — 后端源码 + 文档 + 部署脚本。
+            运行数据（backend/data）、模型（models/Qwen3_5）与前端不在源码包内。
+
+            ### 盒子侧产物（在目标机执行，非本 Release 内）
+            部署包与镜像必须在 aarch64 盒子本机用仓库脚本产出：
+
+            ```bash
+            # 1. Docker 自包含部署
+            bash scripts/deploy/docker/build_images.sh ${{ steps.meta.outputs.VERSION }}
+            #   详情: scripts/deploy/docker/PACKAGING.md / DEPLOYING.md
+
+            # 2. 离线 deb
+            bash scripts/deploy/make_deb.sh \
+                --frontend <前端目录> --models <模型目录> --version ${{ steps.meta.outputs.VERSION }}
+            ```
+
+            ### 发布检查清单（真机回归，L3）
+            - [ ] classic CI 绿（本仓库已带）
+            - [ ] 盒子上跑通 L3：TPU 检索/生成冒烟 + golden 检索质量（scripts/eval_retrieval.py）
+            - [ ] 升级/回滚演练通过（数据目录不动、保留上一版）
+            - [ ] /health 显示本版本号

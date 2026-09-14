@@ -1,0 +1,60 @@
+# =============================================================================
+# SafeRAG CI — 合并门禁（单元测试 + 应用导入冒烟 + lint）
+#
+# 触发: push 到 main / 任何 pull_request
+# 分层说明: 见 docs/CI-PLAN.md（L1 单元门禁 / L2 import 冒烟 / L3 真机回归在盒子侧）
+# Python 固定 3.10: 对齐盒子上实测锁定的 3.10.12
+# =============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+# 同一分支的新 commit 来了，取消旧跑，省额度
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---- L1 + L2：依赖安装 + 测试 + import 冒烟，一条龙 ----
+  test:
+    name: 单元测试 + 应用导入冒烟
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Python 3.10（带 pip 缓存）
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: 安装测试依赖
+        run: python -m pip install -r backend/requirements-test.txt
+
+      - name: L1 · 单元测试（自包含 fixtures，不碰模型/网络）
+        run: python -m pytest tests/ backend/tests/ -q
+
+      - name: L2 · 应用导入冒烟（防 import 期 NameError 崩整个 app）
+        run: python -c "import backend.main"
+
+  # ---- 风格/低级错误门禁；与 test 并行，秒级 ----
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: 安装 ruff
+        run: python -m pip install --quiet ruff
+
+      - name: Ruff 检查
+        run: ruff check .
