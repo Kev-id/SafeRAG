@@ -1,5 +1,0 @@
-/etc/systemd/system/qwen.service
-/etc/systemd/system/qwen_chat.service
-/etc/systemd/system/saferag.service
-/etc/nginx/sites-available/SafeRAG
-/etc/nginx/sites-enabled/SafeRAG

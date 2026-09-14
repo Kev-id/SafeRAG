@@ -46,7 +46,7 @@
 ### `.github/workflows/release.yml`（打 tag 出源码包）
 - 触发：`push` tag `v*`
 - 构建**源码 tarball**（排除 `.git / backend/data / models / Qwen3_5 / __pycache__`）+ `softprops/action-gh-release` 挂到 GitHub Release，带发布清单。
-- **明确边界**：盒子侧产物（镜像 tar、deb、前端包）必须在本机构架（aarch64 + 模型 + 前端目录）用 `scripts/deploy/docker/build_images.sh` / `scripts/deploy/make_deb.sh` 产出，GitHub 托管 runner 产不了。后续若要把盒子产物 CI 化，需引入 aarch64 runner + 模型/前端仓库，暂不做。
+- **明确边界**：盒子侧产物（引擎镜像 tar、前端包）必须在本机构架（aarch64 + 模型 + 前端目录）用 `scripts/deploy/docker/build_images.sh` 产出，GitHub 托管 runner 产不了。后续若要把盒子产物 CI 化，需引入 aarch64 runner + 模型/前端仓库，暂不做。（deb 非 Docker 部署路径已于 2026-09-14 移除，见 devlog.md 当日记）
 
 ## 六、ruff 收敛（首跑处置结果 2026-09-14）
 
@@ -66,8 +66,8 @@
 Qwen3_5 拆出去**符合工程规范**（厂商代码不该混在产品仓库），由用户拍板单独排期。关键约束与依据见会话记录，要点：
 
 - **不能用 git submodule**：盒子是离线内网，`git submodule update` 拉不了。形态 = 独立引擎仓库 + 部署包携带（与现在 tar 带镜像同一机制）。
-- 仓库 `Qwen3_5/` 只被**镜像构建机**（build_images.sh → Dockerfile.engine 取 `python_demo/`）和**旧 systemd 流派**（[qwen.service](scripts/deploy/systemd/qwen.service) WorkingDirectory）消费；Docker 部署流派运行时只靠预构建引擎镜像，不碰仓库源码。
-- 拆要动：build_images.sh / make_deb.sh / 两个 systemd unit / monitor_service.py 的进程匹配串 / PACKAGING·DEPLOYING·NEW-BOX 文档 / release.yml 的排除项。盒子侧需真机配合验证。
+- 仓库 `Qwen3_5/` 只被**镜像构建机**（build_images.sh → Dockerfile.engine 取 `python_demo/`）消费；2026-09-14 已删除非 Docker 部署路径（deb / systemd / 宿主 nginx），盒子上只跑 Docker，**构建机是唯一消费方**。
+- 拆要动：build_images.sh / monitor_service.py 的进程匹配串 / PACKAGING·DEPLOYING·NEW-BOX 文档 / release.yml 的排除项。盒子侧需真机配合验证。
 
 ## 七、实施步骤清单
 

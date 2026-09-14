@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-09-14
+
+- **删除 deb 部署（非 Docker 路径）**：用户拍板"现在不用这个部署"。删的是整套非 Docker 部署：
+  `scripts/deploy/make_deb.sh` / `scripts/deploy/debian/`（两个 deb 的 DEBIAN 打包文件）/
+  `scripts/deploy/systemd/`（qwen / qwen_chat / saferag 三服务）/ 宿主 `scripts/deploy/nginx/` /
+  `scripts/deploy/README.md`（deb 安装指南）。
+- 边界判断：这条路径的所有组件只被 deb 打包消费（conffiles/postinst/prerm 引用 systemd 三服务，
+  make_deb 打包宿主 nginx 与前端）；当前在跑的 Docker 部署完全自足不碰它们——删了不破坏现网。
+- 同步改：release.yml 去掉 make_deb 步骤、CI-PLAN 去掉 deb 引用、.gitignore 过期注释、
+  docker nginx 注释里的悬空引用。后果：Qwen3_5 在仓库里的消费方只剩镜像构建机，拆独立引擎仓库任务简化。
+- 坑/教训：删"一个入口"前先查它被谁消费——deb 摸出来的事实是它=整套 systemd+nginx 非 Docker 路径的
+  打包入口。只删 make_deb.sh 会留下 3 个无人用的 systemd unit 和十几份 nginx 配置（死文件）。
+  好在 docker 侧自己的 nginx 配置（scripts/deploy/docker/nginx/saferag.conf）与这套宿主 nginx 独立。
+
 ## 2026-09-02
 
 - **三权分立认证 + 操作日志审计**：sysadmin/secadmin/audadmin 三员，登录成败、报告、知识库（含敏感标记）、用户管理的写操作全部落 `operation_log`，仅 audadmin 可查（`audadmin_only`）
