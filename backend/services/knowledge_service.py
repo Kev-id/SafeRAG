@@ -15,10 +15,9 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from backend.core.config import KB_SOURCE_DIR
-from backend.core.retriever import reset_retriever
-from backend.core.chunker import read_text
 from backend.core.kb_store import delete_file_chunks, upsert_file_chunks
 from backend.core.legal_parser import extract_text, iter_legal_chunks, parse_to_tree
+from backend.core.retriever import reset_retriever
 from backend.repositories import kb_file_repo, kb_tree_repo
 
 logger = logging.getLogger(__name__)

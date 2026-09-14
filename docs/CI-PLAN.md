@@ -48,10 +48,26 @@
 - 构建**源码 tarball**（排除 `.git / backend/data / models / Qwen3_5 / __pycache__`）+ `softprops/action-gh-release` 挂到 GitHub Release，带发布清单。
 - **明确边界**：盒子侧产物（镜像 tar、deb、前端包）必须在本机构架（aarch64 + 模型 + 前端目录）用 `scripts/deploy/docker/build_images.sh` / `scripts/deploy/make_deb.sh` 产出，GitHub 托管 runner 产不了。后续若要把盒子产物 CI 化，需引入 aarch64 runner + 模型/前端仓库，暂不做。
 
-## 六、ruff 收敛
+## 六、ruff 收敛（首跑处置结果 2026-09-14）
 
-- `pyproject.toml` 的 `target-version = "py312"` 与运行时 3.10 **不一致**：收窄到 `py310`，避免 CI 放行 py312 才合法的语法、盒子 3.10 一跑就炸。
-- 全仓库 lint 无基线：首跑若红，做一次性对齐后再收紧规则。
+首跑 137 处红点，按规则分布：E501 ×78 / I001 ×31 / E402 ×15 / F401 ×5 / F841 ×4 / F541 ×4。处置：
+
+- **`target-version` py312 → py310**：对齐盒子运行时 3.10.12。
+- **`exclude = ["Qwen3_5", "_chunk_test.py"]`**：Qwen3_5 是厂商推理演示包（上游代码 + aarch64 chat.so），lint 它只有噪音；**过渡措施**，待"拆独立引擎仓库"任务完成后移除（见第八节）。`_chunk_test.py` 是根目录遗留脚本。
+- **`ignore = ["E501"]`**：仓库 prompt/法规/注释以中文长文本为主，100 字符折行是纯噪音；E 组其余规则（含 E999 语法错误）仍生效。
+- **`backend/main.py` 白名单 E402**：入口先 `sys.path.insert` 再 import 的惯例结构。
+- **实修真问题**：
+  - 死代码：`document_service.retrieve_with_citations` 未用的 `chunk`、`scripts/eval_retrieval.py` 未用的 `golds`
+  - **保留的隐式校验**：`create_document` 里 `template = get_template(task_type)` 改为裸调用——该调用是 API 层把未知 task_type 抛 KeyError 转 422 的机制（[documents.py](backend/api/documents.py)），**不能被 `--fix` 删掉**
+  - F401 未用 import / F541 无用 f-string：自动清除；I001 排序：`--fix` 自动排，已核对未破坏任何 `sys.path` 引导结构
+
+## 后续任务：拆 Qwen3_5 独立引擎仓库
+
+Qwen3_5 拆出去**符合工程规范**（厂商代码不该混在产品仓库），由用户拍板单独排期。关键约束与依据见会话记录，要点：
+
+- **不能用 git submodule**：盒子是离线内网，`git submodule update` 拉不了。形态 = 独立引擎仓库 + 部署包携带（与现在 tar 带镜像同一机制）。
+- 仓库 `Qwen3_5/` 只被**镜像构建机**（build_images.sh → Dockerfile.engine 取 `python_demo/`）和**旧 systemd 流派**（[qwen.service](scripts/deploy/systemd/qwen.service) WorkingDirectory）消费；Docker 部署流派运行时只靠预构建引擎镜像，不碰仓库源码。
+- 拆要动：build_images.sh / make_deb.sh / 两个 systemd unit / monitor_service.py 的进程匹配串 / PACKAGING·DEPLOYING·NEW-BOX 文档 / release.yml 的排除项。盒子侧需真机配合验证。
 
 ## 七、实施步骤清单
 

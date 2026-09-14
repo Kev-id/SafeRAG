@@ -1,8 +1,8 @@
 """业务层 — 健康检查。"""
 
-from backend.core.qwen_client import check_health, check_chat_health
 from backend.core.database import check_database_health
 from backend.core.kb_store import check_chroma_health
+from backend.core.qwen_client import check_chat_health, check_health
 from backend.core.retriever import get_retriever
 
 

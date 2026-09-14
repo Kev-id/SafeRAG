@@ -12,9 +12,9 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from backend.core import doc_exporter
+from backend.repositories.document_repo import DocStatus, report_path
 from backend.services import document_service, operation_log_service
-from backend.services.auth_service import perm_user_sys_sec_aud, perm_user_sys_sec, perm_sys_sec_aud
-from backend.repositories.document_repo import report_path, DocStatus
+from backend.services.auth_service import perm_sys_sec_aud, perm_user_sys_sec, perm_user_sys_sec_aud
 
 router = APIRouter(prefix="/api/v1", tags=["documents"])
 

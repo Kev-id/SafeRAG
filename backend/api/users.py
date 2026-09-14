@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from backend.repositories import user_repo
 from backend.services import operation_log_service
-from backend.services.auth_service import get_current_user, perm_sys
+from backend.services.auth_service import perm_sys
 
 router = APIRouter(prefix="/api/v1/users", tags=["users"])
 

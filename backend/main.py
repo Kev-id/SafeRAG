@@ -5,8 +5,8 @@
 
 import asyncio
 import logging
-import sys
 import os
+import sys
 
 # 确保 backend.xxx 导入正确
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,6 +27,7 @@ from backend.core.database import init_db
 from backend.core.retriever import get_retriever
 from backend.repositories import document_repo, user_repo
 from backend.services import document_service, knowledge_service
+
 
 @app.on_event("startup")
 async def on_startup():
@@ -51,16 +52,16 @@ async def on_startup():
     )
 
 # 挂载路由
-from backend.api.auth import router as auth_router
 from backend.api.ai import router as ai_router
-from backend.api.documents import router as doc_router
-from backend.api.tasks import router as tasks_router
-from backend.api.kb import router as kb_router
-from backend.api.health import router as health_router
-from backend.api.chat import router as chat_router
-from backend.api.monitor import router as monitor_router
-from backend.api.users import router as users_router
 from backend.api.audit import router as audit_router
+from backend.api.auth import router as auth_router
+from backend.api.chat import router as chat_router
+from backend.api.documents import router as doc_router
+from backend.api.health import router as health_router
+from backend.api.kb import router as kb_router
+from backend.api.monitor import router as monitor_router
+from backend.api.tasks import router as tasks_router
+from backend.api.users import router as users_router
 
 app.include_router(auth_router)
 app.include_router(ai_router)

@@ -4,9 +4,9 @@
 表结构只存元数据 + 原文，报告正文仍以 .md 文件存储。
 """
 
-import sqlite3
-import os
 import logging
+import os
+import sqlite3
 
 from backend.core.config import DATABASE_URL
 

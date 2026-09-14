@@ -1,7 +1,7 @@
 """业务层 — AI 状态检查（文档引擎 + 聊天引擎）。"""
 
-from backend.core.qwen_client import check_health, check_chat_health
-from backend.core.config import QWEN_DOC_URL, QWEN_CHAT_URL
+from backend.core.config import QWEN_CHAT_URL, QWEN_DOC_URL
+from backend.core.qwen_client import check_chat_health, check_health
 
 
 async def get_status() -> dict:

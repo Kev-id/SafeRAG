@@ -20,7 +20,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.core.chunker import file_md5
 from backend.core.config import KB_SOURCE_DIR
-from backend.core.kb_store import get_all_batch, get_collection, upsert_file_chunks, delete_file_chunks
+from backend.core.kb_store import (
+    delete_file_chunks,
+    get_all_batch,
+    get_collection,
+    upsert_file_chunks,
+)
 from backend.core.legal_parser import extract_text, iter_legal_chunks, parse_to_tree
 from backend.repositories import kb_file_repo, kb_tree_repo
 

@@ -1,18 +1,18 @@
 """HTTP 客户端，封装对 Qwen 推理引擎的调用。"""
 
+import logging
 import os
 import time
 from typing import AsyncIterator
 
 import httpx
-import logging
 
 from backend.core.config import (
     QWEN_BASE_URL,
-    QWEN_MODEL,
     QWEN_CONNECT_TIMEOUT,
-    QWEN_READ_TIMEOUT,
     QWEN_MAX_TOKENS,
+    QWEN_MODEL,
+    QWEN_READ_TIMEOUT,
 )
 
 logger = logging.getLogger(__name__)

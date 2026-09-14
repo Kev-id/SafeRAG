@@ -14,7 +14,6 @@ import re
 
 from backend.core.chunker import decode_text, file_md5
 
-
 _CHAPTER_RE = re.compile(r"^(第[一二三四五六七八九十百千万0-9]+章)\s*(.*)$")
 _SECTION_RE = re.compile(r"^(第[一二三四五六七八九十百千万0-9]+节)\s*(.*)$")
 _ARTICLE_RE = re.compile(r"^(第[一二三四五六七八九十百千万0-9]+条)\s*(.*)$")
@@ -99,6 +98,7 @@ def extract_text(content: bytes, filename: str) -> str:
 def _extract_docx(content: bytes) -> str:
     """python-docx 按段落抽文本，每段一行。"""
     import io
+
     from docx import Document
 
     doc = Document(io.BytesIO(content))
@@ -111,6 +111,7 @@ def _extract_docx(content: bytes) -> str:
 def _extract_pdf(content: bytes) -> str:
     """pypdf 抽文本层；扫描件/损坏 PDF 明确报错（转 ValueError 让上层统一处理）。"""
     import io
+
     from pypdf import PdfReader
     from pypdf.errors import PdfReadError
 

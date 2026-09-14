@@ -101,8 +101,9 @@ def test_pdf_scan_rejected():
     import pytest
     # 无文本层：合法结构但内容为空的 PDF（reportlab 空页），extract_text 返回空
     try:
-        from reportlab.pdfgen import canvas
         import io
+
+        from reportlab.pdfgen import canvas
         buf = io.BytesIO()
         c = canvas.Canvas(buf)
         c.showPage()
@@ -116,8 +117,9 @@ def test_pdf_scan_rejected():
 
 def test_docx_parsed_to_tree():
     """docx 按段落提取 → 法规结构建树（接缝兑现）。"""
-    import pytest
     import io
+
+    import pytest
     try:
         from docx import Document
     except ImportError:

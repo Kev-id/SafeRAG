@@ -53,7 +53,6 @@ def build_report(queries: list[dict], results: list[list[str]], k: int,
                  model: str, use_filter: bool, rerank_label: str = "?",
                  avg_ms: float = 0.0) -> str:
     """拼一段 txt 报告：模型 / 精排 / 筛选开关 / 平均耗时 / 分任务指标。"""
-    golds = [set(q["gold"]) for q in queries]
     splits = [("全部", None)] + [
         (("短问句", "short"), ("事故简报", "news"), ("长文(≥500字)", "long"))[i]
         for i in range(3)
@@ -138,8 +137,8 @@ def main() -> None:
     if args.max:
         queries = queries[: args.max]
     # 检索：懒加载一次（env 已就位，config 此时才读到本运行的精排参数）
-    from backend.core.retriever import get_retriever
     from backend.core import reranker as reranker_mod
+    from backend.core.retriever import get_retriever
     retriever = get_retriever()
 
     # 精排实际是否启用按模型文件是否存在判定，报告/打印用同一结果

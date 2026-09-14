@@ -10,18 +10,18 @@ from datetime import datetime, timezone
 
 from backend.core.qwen_client import chat as qwen_chat
 from backend.core.retriever import get_retriever
-from backend.services.template_service import get_template, PromptTemplate
 from backend.repositories.document_repo import (
-    Document,
     DocStatus,
-    save,
-    get,
-    update,
-    list_all,
+    Document,
+    claim_next,
     count,
     delete,
-    claim_next,
+    get,
+    list_all,
+    save,
+    update,
 )
+from backend.services.template_service import PromptTemplate, get_template
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,6 @@ def retrieve_with_citations(original_text: str, top_k: int = 5,
     context_lines, source_lines = [], []
     for i, h in enumerate(hits, 1):
         src = h["meta"].get("source", "?")
-        chunk = h["meta"].get("chunk", "?")
         context_lines.append(f"[{i}]（{src}）{h['text']}")
         source_lines.append(f"[{i}] {src} {h['text']}")
     return "\n".join(context_lines), source_lines
@@ -77,7 +76,9 @@ async def create_document(task_type, original_text, requirements, output_filenam
                           region: str = "", provinces: str = "", cities: str = "",
                           file_types: str = "") -> Document:
     """只建记录 + 标记 queued，不碰模型，立即返回。"""
-    template = get_template(task_type)
+    # 校验 task_type 合法：get_template 对未知 key 抛 KeyError，
+    # 由 API 层（backend/api/documents.py）捕获转成 422，不在 queued 里留坏任务
+    get_template(task_type)
     doc = Document(
         original_text=original_text,
         requirements=requirements,

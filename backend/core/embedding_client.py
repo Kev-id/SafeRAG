@@ -13,9 +13,9 @@
         tokenizer.json
 """
 
+import logging
 import os
 import sys
-import logging
 
 # 保证 `python backend/core/embedding_client.py` 直接跑也能 import backend 包
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))

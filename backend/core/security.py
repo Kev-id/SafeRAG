@@ -12,7 +12,7 @@ import time
 
 import jwt  # PyJWT
 
-from backend.core.config import JWT_SECRET, JWT_ALGORITHM, JWT_EXPIRE_MINUTES
+from backend.core.config import JWT_ALGORITHM, JWT_EXPIRE_MINUTES, JWT_SECRET
 
 # ---- PBKDF2 密码哈希 ----
 

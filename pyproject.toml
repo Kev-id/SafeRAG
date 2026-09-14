@@ -10,7 +10,23 @@ line-length = 100
 # 运行时是盒子上实测锁定的 Python 3.10.12（见 backend/requirements.txt），
 # 收窄到 py310，避免 CI 放行 py312 才合法的语法、盒子一跑就炸
 target-version = "py310"
+# 不 lint 非本项目代码（过渡措施，待"拆独立引擎仓库"任务完成后移除）：
+#   Qwen3_5 是厂商推理演示包（上游代码 + 编译好的 chat.so），本仓库只消费它
+#   构建引擎镜像 / systemd 工作目录；厂商代码参与 lint 只会制造噪音与升级噪音。
+#   拆法见 docs/CI-PLAN.md「后续任务」：独立仓库 + 部署包携带，不能用 submodule（盒子离线）。
+#   _chunk_test.py 是根目录遗留的零散测试脚本。
+exclude = ["Qwen3_5", "_chunk_test.py"]
 
 [tool.ruff.lint]
 # E = pycodestyle 错误, F = pyflakes 潜在 bug, I = import 排序
 select = ["E", "F", "I"]
+ignore = [
+    # E501 行超长关闭：本仓库 prompt/法规条文/注释以中文长文本为主，
+    # 100 字符折行是纯噪音且无 bug 收益；E 组其余规则（含 E999 语法错误）仍生效
+    "E501",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# backend/main.py 是入口惯例：先 sys.path.insert 再 import（见文件顶部注释），
+# 该文件的 E402 属有意结构，白名单放行
+"backend/main.py" = ["E402"]

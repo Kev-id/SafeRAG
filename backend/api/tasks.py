@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from backend.services.template_service import list_templates, get_template
 from backend.services.auth_service import perm_user_sys_sec_aud
+from backend.services.template_service import get_template, list_templates
 
 router = APIRouter(prefix="/api/v1", tags=["tasks"])
 

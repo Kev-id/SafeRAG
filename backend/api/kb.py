@@ -6,17 +6,20 @@ GET    /api/v1/files/{filename}    获取单个文件详情
 DELETE /api/v1/files/{filename}    删除知识库文件
 """
 
-from typing import Optional
 import os
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
+from typing import Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-
-from backend.services import knowledge_service, operation_log_service
 from backend.repositories import kb_file_repo
+from backend.services import knowledge_service, operation_log_service
 from backend.services.auth_service import (
     ROLE_SEC,
-    perm_user_sys_sec_aud, perm_user_sys_sec, perm_sys_sec_aud, perm_sec,
+    perm_sec,
+    perm_sys_sec_aud,
+    perm_user_sys_sec,
+    perm_user_sys_sec_aud,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["knowledge"])

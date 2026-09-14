@@ -23,10 +23,10 @@ import chromadb
 import jieba
 from rank_bm25 import BM25Okapi
 
+from backend.core import reranker as reranker_mod
 from backend.core.config import KB_COLLECTION, KB_DIR, RERANKER_TOP_N
 from backend.core.embedding_client import BgeEmbeddingFunction, tokenize_with_offsets
 from backend.core.kb_store import get_all_batch
-from backend.core import reranker as reranker_mod
 
 logger = logging.getLogger(__name__)
 
