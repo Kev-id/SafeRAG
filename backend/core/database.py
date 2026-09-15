@@ -58,6 +58,15 @@ def init_db() -> None:
             conn.execute("ALTER TABLE documents ADD COLUMN file_types TEXT NOT NULL DEFAULT ''")
         if "region" not in doc_cols:
             conn.execute("ALTER TABLE documents ADD COLUMN region TEXT NOT NULL DEFAULT ''")
+        # 模板化逐节生成：提交时指向的模板 + 节快照（模板后改不影响已成文档）+ 逐节结果
+        if "template_id" not in doc_cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN template_id TEXT NOT NULL DEFAULT ''")
+        if "template_snapshot" not in doc_cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN template_snapshot TEXT NOT NULL DEFAULT '[]'")
+        if "sections_json" not in doc_cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN sections_json TEXT")
+        if "sources_json" not in doc_cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN sources_json TEXT NOT NULL DEFAULT '[]'")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS kb_files (
                 filename     TEXT PRIMARY KEY,      -- 源文件名，就是知识库文档的 key
@@ -86,6 +95,18 @@ def init_db() -> None:
                 tree_json  TEXT NOT NULL,
                 md5        TEXT,
                 created_at TEXT NOT NULL
+            )
+        """)
+        # 用户自定义模板（owner_id=NULL = 系统示例，全员可见、只读；节列表存 JSON，顺序即编号）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS templates (
+                id            TEXT PRIMARY KEY,
+                name          TEXT NOT NULL,
+                description   TEXT NOT NULL DEFAULT '',
+                owner_id      INTEGER,
+                sections_json TEXT NOT NULL DEFAULT '[]',
+                created_at    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
             )
         """)
         # 认证用户表（三权分立账号 sysadmin/secadmin/audadmin）

@@ -7,6 +7,7 @@
     data/documents/{doc_id}/report.md
 """
 
+import json
 import logging
 import os
 import shutil
@@ -48,6 +49,11 @@ class Document:
     provinces: str = ""       # 多选省，逗号分隔（如"湖北,广东"）；空=不限省
     cities: str = ""          # 多选市，逗号分隔（如"武汉,深圳"）；空=不限市
     file_types: str = ""      # 多选文件类型，逗号分隔（如"国家法律,地方法规"）；空=不限
+    # 模板化逐节生成：提交时的模板 id + 节快照（模板后改不影响已成文档）+ 逐节结果
+    template_id: str = ""
+    template_snapshot: list[dict] = field(default_factory=list)
+    sections: list[dict] | None = None
+    sources: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     completed_at: str | None = None
 
@@ -84,6 +90,12 @@ def _row_to_doc(row) -> Document:
         provinces=(row["provinces"] or "") if "provinces" in keys else "",
         cities=(row["cities"] or "") if "cities" in keys else "",
         file_types=(row["file_types"] or "") if "file_types" in keys else "",
+        template_id=(row["template_id"] or "") if "template_id" in keys else "",
+        template_snapshot=(json.loads(row["template_snapshot"] or "[]")
+                           if "template_snapshot" in keys else []),
+        sections=(json.loads(row["sections_json"])
+                  if "sections_json" in keys and row["sections_json"] else None),
+        sources=(json.loads(row["sources_json"] or "[]") if "sources_json" in keys else []),
     )
 
 
@@ -94,8 +106,9 @@ def save(doc: Document) -> Document:
         conn.execute(
             """INSERT INTO documents
                (id, status, output_filename, requirements, original_text,
-                task_type, created_at, completed_at, region, provinces, cities, file_types)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                task_type, created_at, completed_at, region, provinces, cities, file_types,
+                template_id, template_snapshot, sections_json, sources_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 doc.id,
                 doc.status.value,
@@ -109,6 +122,10 @@ def save(doc: Document) -> Document:
                 doc.provinces,
                 doc.cities,
                 doc.file_types,
+                doc.template_id,
+                json.dumps(doc.template_snapshot, ensure_ascii=False),
+                json.dumps(doc.sections, ensure_ascii=False) if doc.sections is not None else None,
+                json.dumps(doc.sources, ensure_ascii=False),
             ),
         )
         conn.commit()
@@ -153,7 +170,8 @@ def update(doc: Document) -> Document:
             """UPDATE documents
                SET status=?, output_filename=?, requirements=?, original_text=?,
                    task_type=?, created_at=?, completed_at=?, region=?,
-                   provinces=?, cities=?, file_types=?
+                   provinces=?, cities=?, file_types=?,
+                   template_id=?, template_snapshot=?, sections_json=?, sources_json=?
                WHERE id=?""",
             (
                 doc.status.value,
@@ -167,6 +185,10 @@ def update(doc: Document) -> Document:
                 doc.provinces,
                 doc.cities,
                 doc.file_types,
+                doc.template_id,
+                json.dumps(doc.template_snapshot, ensure_ascii=False),
+                json.dumps(doc.sections, ensure_ascii=False) if doc.sections is not None else None,
+                json.dumps(doc.sources, ensure_ascii=False),
                 doc.id,
             ),
         )
