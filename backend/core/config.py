@@ -17,6 +17,8 @@ QWEN_CONNECT_TIMEOUT = int(os.getenv("QWEN_CONNECT_TIMEOUT", "5"))
 QWEN_READ_TIMEOUT = int(os.getenv("QWEN_READ_TIMEOUT", "600"))
 # 单次生成的最大 token 数：封顶最坏耗时（配合推理引擎的 max_tokens）
 QWEN_MAX_TOKENS = int(os.getenv("QWEN_MAX_TOKENS", "4096"))
+# 逐节生成：后节可引用前序章节的上下文预算（字符数，超预算截断最旧节，护 8K 输入窗口）
+SECTION_CTX_BUDGET = int(os.getenv("SECTION_CTX_BUDGET", "2000"))
 
 # ---- Embedding 模型（RAG 检索用）----
 EMBEDDING_MODEL_PATH = os.getenv("EMBEDDING_MODEL_PATH", "/data2/models/bge-small-zh-v1.5")
