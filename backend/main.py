@@ -26,7 +26,7 @@ app = FastAPI(title="SafeRAG API", version="0.1.0")
 from backend.core.database import init_db
 from backend.core.retriever import get_retriever
 from backend.repositories import document_repo, user_repo
-from backend.services import document_service, knowledge_service
+from backend.services import document_service, knowledge_service, template_service
 
 
 @app.on_event("startup")
@@ -34,6 +34,8 @@ async def on_startup():
     init_db()
     # 幂等创建三权分立种子账号（sysadmin/secadmin/audadmin）
     user_repo.seed_users()
+    # 幂等 seed 三套系统示例模板（事故分析/隐患排查/应急预案）
+    template_service.seed_system_templates()
     # 启动恢复：上次进程退出时卡在 processing 的任务捞回 queued，worker 会接着跑
     recovered = document_repo.recover_stuck()
     if recovered:
@@ -61,6 +63,7 @@ from backend.api.health import router as health_router
 from backend.api.kb import router as kb_router
 from backend.api.monitor import router as monitor_router
 from backend.api.tasks import router as tasks_router
+from backend.api.templates import router as templates_router
 from backend.api.users import router as users_router
 
 app.include_router(auth_router)
@@ -73,6 +76,7 @@ app.include_router(chat_router)
 app.include_router(monitor_router)
 app.include_router(users_router)
 app.include_router(audit_router)
+app.include_router(templates_router)
 
 @app.get("/")
 async def root():

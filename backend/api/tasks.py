@@ -21,10 +21,12 @@ class TaskListResponse(BaseModel):
 
 @router.get("/tasks", response_model=TaskListResponse)
 async def list_tasks(_user: dict = Depends(perm_user_sys_sec_aud)):
-    """列出所有任务类型（只暴露 key/name/description，不暴露 prompt）。"""
+    """列出所有任务类型（只暴露 id/name/description，不暴露 prompt）。
+
+    现为系统示例模板的薄封装（新前端请改用 /api/v1/templates）。"""
     return TaskListResponse(
         tasks=[
-            TaskInfo(key=t.key, name=t.name, description=t.description)
+            TaskInfo(key=t.id, name=t.name, description=t.description)
             for t in list_templates()
         ]
     )
@@ -37,7 +39,7 @@ async def get_task(task_key: str, _user: dict = Depends(perm_user_sys_sec_aud)):
     except KeyError:
         raise HTTPException(status_code=404, detail=f"任务不存在:{task_key}")
     return TaskInfo(
-        key=t.key,
+        key=t.id,
         name=t.name,
         description=t.description
     )
