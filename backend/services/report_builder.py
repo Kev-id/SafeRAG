@@ -6,13 +6,23 @@
 章节编号从模板节索引派生（template_repo.section_no），增删节自动重排。
 """
 
+import re
+
 from backend.repositories.template_repo import section_no
 
-# 逐节生成用的 system 提示：比旧"治理四件套"大 Prompt 简略——章节要求由各节 instruction 承担
+# 逐节生成用的 system 提示：章节要求由各节 instruction 承担；格式规范（旧模板【输出格式要求】）直接内嵌 system，
+# 只此一处，模型按它输出『## 一、…』章标题与『### （一）…』二级要点，渲染器据此去重。
 SYSTEM_SECTION_PROMPT = (
-    "你是安全生产与公文撰写专家。你只负责撰写报告当前指定的一章：只输出本章正文，"
-    "不要输出其他章节、不要输出标题、不要加任何说明。引用法规须标注 [编号]；"
-    "本章无适用法规则明确写『本章无适用法规』。"
+    "你是安全生产与公文撰写专家，只撰写报告当前指定的一章。"
+    "只输出本章内容，不要输出其他章节，不要加『以下是正文』之类的说明。"
+    "引用法规须标注 [编号]；本章无适用法规则明确写『本章无适用法规』。\n"
+    "【输出格式要求】\n"
+    "1. 本章用 Markdown 标题：以『## 一、基本情况』作为本章标题（编号与标题用上文给定的当前章节）；"
+    "本章内部二级要点用『### （一）…』，至多到三级。\n"
+    "2. 每个自然段独立成行，段落之间空一行。\n"
+    "3. 正文不使用 #、*、-、> 等 Markdown 符号（标题除外）。\n"
+    "4. 不确定信息写『待核实/需补充』；原始材料未记载的信息写『原文未记载』，"
+    "禁止编造事实、数字、法规条文。"
 )
 
 
@@ -112,16 +122,25 @@ def build_revise_messages(
 
 
 def render_report(title: str, sections: list[dict], sources: list[str] | None) -> str:
-    """从节拼回整篇 .md：'# 标题' + 每节 '## 一、{title}' + 正文；末尾附「参考法规来源」。
+    """从节拼回整篇 .md：'# 标题' + 每节内容 + 末尾「参考法规来源」。
 
-    只收 content 非空的节；编号由索引派生，增删节后自动重排。
+    章节标题由模型按【输出格式要求】自带（`## 一、…`）；这里只在模型漏写标题时
+    补一个（防缺标题），绝不在已有标题时重复加（防『## 一、基本情况』下面再叠一行）。
     """
     lines = [f"# {title}"]
     for i, sec in enumerate(sections):
         content = (sec.get("content") or "").strip()
         if not content:
             continue
-        lines += ["", f"## {section_no(i)}{sec.get('title','')}", content]
+        no = section_no(i)
+        expect = f"{no}{sec.get('title','')}"
+        first = content.splitlines()[0].strip()
+        # 模型自带『## 一、…』（或裸『一、…』）→ 直接用；否则渲染器补。
+        # 注意别用 f-string 拼正则：{1,6} 会被 f-string 求值成元组，正则失效。
+        if re.match(r"^#{1,6}\s*" + re.escape(expect) + r"$", first) or first == expect:
+            lines += ["", content]
+        else:
+            lines += ["", f"## {expect}", content]
     if sources:
         # 每条来源用空行隔开：单 \n 在 Markdown 里是"软换行"（同一段），
         # pandoc 转 Word 会粘连成一段；\n\n 才各自成独立段落

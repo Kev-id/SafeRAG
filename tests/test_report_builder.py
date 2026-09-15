@@ -14,6 +14,8 @@ def test_build_section_messages_carries_instruction_and_previous():
     msgs = rb.build_section_messages("事故原文", "总体要求", "法规", sections, 1, 1000)
 
     assert msgs[0]["role"] == "system"
+    assert "【输出格式要求】" in msgs[0]["content"]        # 格式规范只放 system 一处
+    assert "## 一、基本情况" in msgs[0]["content"]         # 章标题由模型自带
     user = msgs[1]["content"]
     assert "当前需撰写章节：二、原因分析（第 2/2 章）" in user
     assert "三层归因" in user                        # 本节 instruction
@@ -42,6 +44,21 @@ def test_render_report_numbering_and_sources():
     assert "## 二、乙" not in out
     assert "\n\n## 三、丙\n第三段正文" in out
     assert "## 参考法规来源\n\n[1] 来源 第一条" in out
+
+
+def test_render_report_no_duplicate_when_model_wrote_heading():
+    """模型按格式要求自带『## 一、…』标题 → 渲染器不再重复加。"""
+    sections = [{"title": "甲", "content": "## 一、甲\n正文内容"}]
+    out = rb.render_report("我的报告", sections, None)
+    assert out.count("## 一、甲") == 1
+    assert "\n\n## 一、甲\n正文内容" in out
+
+
+def test_render_report_adds_heading_if_model_omitted():
+    """模型漏写标题 → 渲染器补一个（防缺标题）。"""
+    sections = [{"title": "甲", "content": "只有正文没有标题"}]
+    out = rb.render_report("我的报告", sections, None)
+    assert "\n\n## 一、甲\n只有正文没有标题" in out
 
 
 def test_build_revise_messages_has_extra_and_others():
