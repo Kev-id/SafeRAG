@@ -19,6 +19,18 @@ _SECTION_RE = re.compile(r"^(第[一二三四五六七八九十百千万0-9]+节
 _ARTICLE_RE = re.compile(r"^(第[一二三四五六七八九十百千万0-9]+条)\s*(.*)$")
 _LEGAL_HEAD_RE = re.compile(r"^(第[一二三四五六七八九十百千万0-9]+[章节条])")
 
+# --- 非法规文本的标题探测 ---
+# 按"结构感"强弱顺序匹配：多级阿拉伯 > 章/节 > 中文序号 > （中文序号） > 阿拉伯序号 > markdown。
+# 检测顺序很重要："1.1.2" 必须先进 _AR_LEVEL_RE，否则会被 _AR_DOT_RE 吃掉前缀。
+_AR_LEVEL_RE = re.compile(r"^(\d+(?:\.\d+)+)\s*(.*)$")                    # 1.1 / 1.1.2
+_CN_HEAD_RE = re.compile(r"^([一二三四五六七八九十百千万]+)[、．.]\s*(.*)$")  # 一、/一.
+_CN_PAREN_RE = re.compile(r"^[（(]([一二三四五六七八九十百千万]+)[)）]\s*(.*)$")  # （一）/(一)
+_AR_DOT_RE = re.compile(r"^(\d+)[、．.]\s*(.*)$")                         # 1、/1.
+_MD_HEAD_RE = re.compile(r"^(#{1,6})\s+(.*)$")                           # ## xxx（须在原始行上匹配）
+
+_HEAD_MAX_LEN = 50           # 标题行长度上限：正文长句不算标题
+_SENT_TERMINAL = "。！？；"   # 完句句读：以这些结尾的行不算标题
+
 # 全角空格（U+3000）常见于"目　　录""总　　则"，_clean_line 不去它会导致标题/目录探测失效。
 _FULLWIDTH_SPACE = "　"
 
@@ -138,8 +150,8 @@ def parse_to_tree(content: bytes, filename: str, file_type: str, region: str,
     region = 省/直辖市/自治区（空=全国性法规）；city = 地级市（空=省级条例活在 city 粒度下为空）。
 
     法规文本（章/节/条头足够）→ 层级文档树；
-    其它文本 → 最简文档树（单根 article 节点装整段正文），与法规走同一条入库路径，
-    入库层不再需要兜底——所有文本统一先变树，再 iter_legal_chunks 出块。
+    其它文本 → 分节文档树（有结构标题 → chapter/section/article 层级；无结构 → 按段分块），
+    与法规走同一条入库路径——所有文本统一先变树，再 iter_legal_chunks 出块。
     """
     text = extract_text(content, filename)#把文件内容按后缀提取成文本
     if not text.strip():
@@ -148,13 +160,8 @@ def parse_to_tree(content: bytes, filename: str, file_type: str, region: str,
     if _is_legal_text(text):
         return _parse_legal(text, source=filename, file_type=file_type,
                             region=region, city=city), md5
-    tree = {
-        "doc": {"title": "", "file_type": file_type, "source": filename,
-                "meta": None, "region": region, "city": city},
-        "toc": [],
-        "tree": [{"level": "article", "no": "", "title": "", "text": text.strip()}],
-    }
-    return tree, md5
+    return _parse_plain(text, source=filename, file_type=file_type,
+                        region=region, city=city), md5
 
 
 def _parse_legal(text: str, source: str, file_type: str, region: str,
@@ -302,6 +309,181 @@ def _parse_legal(text: str, source: str, file_type: str, region: str,
         },
         "toc": toc,
         "tree": chapters,
+    }
+
+
+def _heading_pattern(raw_line: str) -> tuple[str, str, int] | None:
+    """纯模式探测：一行是否长得像结构标题（不看作上下文），返回 (no, title, level)。
+
+    护栏：清洗后长度 ≤ _HEAD_MAX_LEN、不以句读（。！？；）结尾——完句与超长行都算正文。
+    markdown 必须在原始行上匹配（_clean_line 会吞掉 # 后的空格）。
+    """
+    cleaned = _clean_line(raw_line)
+    if not cleaned or len(cleaned) > _HEAD_MAX_LEN:
+        return None
+
+    # markdown：必须在原始行上匹配（_clean_line 会把 # 后的空格吞掉）
+    md = _MD_HEAD_RE.match(raw_line.strip())
+    if md and not cleaned.endswith(tuple(_SENT_TERMINAL)):
+        title = md.group(2).strip()
+        if title and len(title) <= _HEAD_MAX_LEN:
+            return "", title, 1 if len(md.group(1)) == 1 else 2
+    if cleaned[-1] in _SENT_TERMINAL:
+        return None
+
+    # 顺序敏感：多级阿拉伯优先，防 "1.1.2" 被 _AR_DOT_RE 误吃掉前缀
+    m = _AR_LEVEL_RE.match(cleaned)
+    if m:
+        return m.group(1), m.group(2), min(m.group(1).count(".") + 1, 2)
+    m = _CHAPTER_RE.match(cleaned)
+    if m:
+        return m.group(1), m.group(2), 1
+    m = _SECTION_RE.match(cleaned)
+    if m:
+        return m.group(1), m.group(2), 2
+    m = _CN_HEAD_RE.match(cleaned)
+    if m:
+        return m.group(1) + "、", m.group(2), 1
+    m = _CN_PAREN_RE.match(cleaned)
+    if m:
+        return "（" + m.group(1) + "）", m.group(2), 2
+    m = _AR_DOT_RE.match(cleaned)
+    if m:
+        return m.group(1), m.group(2), 1
+    return None
+
+
+def _heading_of(raw_line: str, next_line: str | None = None) -> tuple[str, str, int] | None:
+    """探测非法规文本一行是否够格当结构标题（模式探测 + 上下文护栏）。
+
+    额外护栏（防连续编号列表项被连环当成空章节）：
+      - 下一非空行是同一级或更浅级的标题（如 1. 紧跟 2.）→ 这是列表项，退回正文；
+      - 下一非空行是更深的标题（如 一、 紧跟 （一））→ 父子关系，仍当标题；
+      - 本行是末行（无后继）→ 不当标题，避免产出空章节。
+    """
+    h = _heading_pattern(raw_line)
+    if h is None:
+        return None
+    if next_line is None:
+        return None
+    nh = _heading_pattern(next_line)
+    if nh is not None and nh[2] <= h[2]:
+        return None
+    return h
+
+
+def _parse_plain(text: str, source: str, file_type: str, region: str,
+                 city: str = "", max_chars: int = 400) -> dict:
+    """非法规文本 → 分节文档树（取代旧的"整段塞单 article"）。
+
+    有结构标题（中文/阿拉伯序号、1.1 多级、markdown、第X章/节）→ 建成
+    chapter/section/article 层级树，chunk 带章节元数据，检索更细；
+    无结构 → 按空行/长度把正文拆成若干 article，不再一把整块怼进 embedding
+    （整段 > 400 字会打爆 BGE 位置上限，参见 embedding_client 注释）。
+
+    入库仍只认树：iter_legal_chunks 对顶层裸 article 与 chapter/section/article
+    两种形态都已兼容，本函数只改解析侧，入库/检索链路零改动。
+    """
+    lines = [ln for ln in text.splitlines()]
+    # 掐头去尾空行，保留内部空行做段落边界（_normalize_text 会丢，这里不能复用）
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    preamble: list[dict] = []          # 首个标题之前的正文（顶层裸 article）
+    chapters: list[dict] = []
+    toc: list[dict] = []
+    current_chapter: dict | None = None
+    current_section: dict | None = None
+    current_article: list[str] | None = None
+    art_len = 0
+    any_body = False
+
+    def flush_article() -> None:
+        nonlocal current_article, art_len, any_body
+        if current_article is None:
+            return
+        body = "\n".join(current_article).strip()
+        if body:
+            node = {"level": "article", "no": "", "title": "", "text": body}
+            if current_section is not None:
+                current_section.setdefault("children", []).append(node)
+            elif current_chapter is not None:
+                current_chapter.setdefault("children", []).append(node)
+            else:
+                preamble.append(node)
+            any_body = True
+        current_article = None
+        art_len = 0
+
+    def flush_section() -> None:
+        nonlocal current_section
+        flush_article()
+        current_section = None
+
+    def open_chapter(no: str, title: str) -> None:
+        nonlocal current_chapter, current_section
+        flush_section()
+        current_chapter = {"level": "chapter", "no": no, "title": title, "children": []}
+        chapters.append(current_chapter)
+        toc.append({"level": "chapter", "no": no, "title": title})
+
+    n = len(lines)
+    i = 0
+    while i < n:
+        raw = lines[i]
+        if not raw.strip():
+            flush_article()      # 空行 = 段落边界
+            i += 1
+            continue
+        nxt: str | None = None
+        for j in range(i + 1, n):
+            if lines[j].strip():
+                nxt = lines[j]
+                break
+        h = _heading_of(raw, nxt)
+        if h is not None:
+            no, title, level = h
+            flush_article()
+            if level <= 1:
+                open_chapter(no, title)
+            else:
+                if current_chapter is None:
+                    open_chapter("", "")     # 无一级标题时的匿名章容器
+                flush_section()
+                current_section = {
+                    "level": "section", "no": no, "title": title, "children": [],
+                }
+                current_chapter.setdefault("children", []).append(current_section)
+            i += 1
+            continue
+        if current_article is None:
+            current_article = [raw]
+            art_len = len(raw)
+        elif art_len + len(raw) > max_chars:
+            flush_article()      # 一段无分隔的超长正文也收口，保证块有界
+            current_article = [raw]
+            art_len = len(raw)
+        else:
+            current_article.append(raw)
+            art_len += len(raw)
+        i += 1
+
+    flush_article()
+
+    if not any_body:
+        # 全文件都是标题/空行：退回整段单 article 最简树，防止空树 → 空库
+        tree: list[dict] = [{"level": "article", "no": "", "title": "", "text": text.strip()}]
+        toc = []
+    else:
+        tree = [*preamble, *chapters]
+
+    return {
+        "doc": {"title": "", "file_type": file_type, "region": region,
+                "city": city, "source": source, "meta": None},
+        "toc": toc,
+        "tree": tree,
     }
 
 

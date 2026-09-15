@@ -99,7 +99,9 @@ SQLite kb_trees（结构真相源）        ← 文档树：章/节/条结构 + 
 }
 ```
 
-非法规文本则是最简树（同级可直接挂裸 article）：
+非法规文本 → 分节文档树（`legal_parser._parse_plain`）：有结构标题（中文/阿拉伯序号、
+1.1 多级、markdown `#`、第X章/节）→ 建成 chapter/section/article 层级；无结构 → 按段分块。
+最简形态（短无结构文本）仍是单根 article：
 
 ```json
 { "doc": {"title":"","file_type":"说明","source":"notes.txt","meta":null},
@@ -193,7 +195,10 @@ BM25+向量+RRF 是粗排；`reranker.py` 是可选精排层（bge-reranker cros
 
 #### 风险与遗留
 
-- **非法规整段入单块**：超长普通文本不切分，单 chunk 可能很大、检索质量下降。本批知识库定位=法规，接受；未来若有长篇普通文，在 `parse_to_tree` 的非法规分支里加分段即可。
+- **非法规分节（2026-09-15 已实现）**：`_parse_plain` 取代"非法规整段单块"——有结构标题 →
+  chapter/section/article 层级，无结构 → 按空行/长度分块，单 chunk 有界、不再整段怼进 embedding
+  （embedding 位置上限 512 那类事故的兜底也在 `_split_long_text` 硬切里）。护栏：完句长句/超长行不当标题。
+  入库/检索链路零改动（`iter_legal_chunks` 对两种树形本就兼容）。
 - **存量 `.tree.json` 侧车**：旧部署或留有磁盘侧车文件，入库改从 SQLite 后成死文件，可手动删。
 - **`.docx`/`.pdf` 未实现**：`parse_to_tree` 已按后缀分派、`_extract_text` 占位抛 `NotImplementedError`，service 白名单 `ALLOWED_EXTS` 现只含 `.txt`。真要支持时：①在 `_extract_text` 加提取器分支（如 python-docx/pypdf，需装依赖）；②把后缀加进 `ALLOWED_EXTS`；③`build_knowledge_base._md5_of` 对齐多格式 md5 语义。入库段不动。
 - **`test_template_service.py` 失败**：模板更新提交后断言未同步，属预先存在的问题，与本改动无关。
