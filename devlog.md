@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-09-15 · 模板系统重构 + 逐节顺序生成
+
+- **需求（用户拍板四向）**：模板 = 数据库里的"有序节列表"（每节点式可自定标题+要求）；每用户看自己的，
+  系统 3 套保留为示例；报告改为**逐节顺序生成**（后节引用前节、系统提示词大幅简略）；
+  单一节可手动改、可追加"要求+材料"由 AI 只重生成该节。
+- **模板模型**：`templates` 表 + sections JSON；**编号由索引派生**（一、二、三…）→ 删节自动重排，不存号；
+  `owner_id=NULL`=系统示例，固定 id = 旧任务类型 key（accident_analysis…）→ 兼容旧 /tasks 和 task_type 调用。
+- **逐节调度**：提交时对模板节做**快照**存 `doc.template_snapshot`（模板后改不影响已成文档）；
+  worker 逐节生成、每节完成即落库（sections_json，前端可轮询进度）；
+  `SECTION_CTX_BUDGET=2000` 截断前序（护 8K 输入窗口）；单节失败继续、最后按有无成功判终态。
+- **单节精修**：`PATCH sections/{i}` 手动改；`POST sections/{i}/revise` 只重生成该节
+  （重新检索法规 + 原文 + 本节 instruction + 本次补充 + 其它章节上下文），同步返回。
+- **实现要点**：
+  - 报告 .md 是下载/Word 唯一真相，sections_json 是逐节细粒度真相；统一走 report_builder.render_report。
+  - 纯函数（消息拼接/截断/渲染）独立成 `report_builder.py`——不 import retriever/qwen，
+    **本机无 jieba 也能单测**（CI"能测"与"不能测"的分界就在这）。
+  - 旧文档（task_type 无快照）在 worker 兜底解析成系统模板的节，兼容运行。
+- **契约**：[docs/template-system-api.md](docs/template-system-api.md)（给前端团队对接）。
+- 测试 45→51 passed（新增 template_service 归属/只读/idempotent + report_builder 纯函数）。
+
 ## 2026-09-15
 
 - **分节树泛化（非法规文本也分节）**：[legal_parser.py](backend/core/legal_parser.py) 新增 `_parse_plain`，
