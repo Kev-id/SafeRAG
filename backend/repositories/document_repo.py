@@ -304,7 +304,12 @@ def claim_next() -> Document | None:
         conn.commit()
     finally:
         conn.close()
-    return _row_to_doc(row)
+    doc = _row_to_doc(row)
+    # DB 里已由上面的 UPDATE 置为 processing，但 row 是认领前 SELECT 的旧行，
+    # 内存 status 仍是 queued。必须对齐，否则后续任何 update(doc)（如逐节进度落库）
+    # 会把 processing 覆盖回 queued——前端一路看到"排队中"而非"处理中"（逐节引入的历史 bug）。
+    doc.status = DocStatus.PROCESSING
+    return doc
 
 
 def recover_stuck() -> int:

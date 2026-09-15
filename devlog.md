@@ -23,6 +23,10 @@
     **本机无 jieba 也能单测**（CI"能测"与"不能测"的分界就在这）。
   - 旧文档（task_type 无快照）在 worker 兜底解析成系统模板的节，兼容运行。
 - **契约**：[docs/template-system-api.md](docs/template-system-api.md)（给前端团队对接）。
+- **坑/回归（修）**：`claim_next` 返回的内存对象是认领前 SELECT 的旧行（status 残留 queued）。
+  逐节进度新增的中间 `update(doc)` 会把 DB 的 **processing 覆盖回 queued** → 前端处理期间
+  一直显示"排队中"而非"处理中"。修：认领返回前把 `doc.status` 对齐 `processing`（DB 与内存一致）。
+  旧代码整篇只在结尾 update 一次（此时 status 已是终态），所以从未暴露。
 - 测试 45→51 passed（新增 template_service 归属/只读/idempotent + report_builder 纯函数）。
 
 ## 2026-09-15
