@@ -101,6 +101,9 @@ POST/PATCH 请求体（节 **不带 no**）：
 { "requirements": "补充一点：要引用危化品条例", "materials": "补充材料文本……" }
 ```
 - 本节内容将"参考原文 + 本次补充 + 其它章节上下文"重新生成，`content` 只换本节。
+- **精修进行中**：调用后先置该节 `status="generating"` 并落库——前端可轮询详情
+  （同文档生成），看到该节"精修中"；完成后置回 `completed`（附 `revised_at`）；
+  失败自动恢复原状态（旧内容保留）。
 - 返回同步，直接得到新内容：
 ```json
 { "id": "...", "index": 0, "no": "一、", "title": "基本情况", "content": "新内容……", "status": "completed" }

@@ -219,23 +219,40 @@ async def save_section(doc_id: str, index: int, content: str) -> Document:
 
 async def revise_section(doc_id: str, index: int,
                          requirements: str = "", materials: str = "") -> Document:
-    """对某一节追加"要求/材料"并让 AI 只重生成该节（其余章节作上下文）。"""
+    """对某一节追加"要求/材料"并让 AI 只重生成该节（其余章节作上下文）。
+
+    同步调用：调用前先把该节 status 置 generating 并落库（前端轮询详情
+    GET /documents/{id} 可见"精修中"——qwen_chat 是 await 不占事件循环，
+    轮询是独立并发请求）；生成完成置回 completed + revised_at 并重渲染整篇。
+    失败恢复原状态（保留旧内容），再上抛。
+    """
     doc = get(doc_id)
     if doc is None:
         raise FileNotFoundError(f"文档不存在: {doc_id}")
     if doc.sections is None or not 0 <= index < len(doc.sections):
         raise ValueError(f"章节越界: {index}")
 
-    # 重新检索（按文档原筛选条件），提供本章可用法规；附录来源不动
-    provinces, cities, file_types = _filters_of(doc)
-    context, _ = await asyncio.to_thread(
-        retrieve_with_citations, doc.original_text, 5, provinces, cities, file_types
-    )
-    messages = build_revise_messages(
-        doc.original_text, doc.requirements, context,
-        doc.sections, index, requirements, materials, SECTION_CTX_BUDGET,
-    )
-    content = await qwen_chat(messages)
+    prev_status = doc.sections[index].get("status", "completed")
+    doc.sections[index]["status"] = "generating"
+    update(doc)   # 立即落库：前端详情能轮询到"精修中"
+
+    try:
+        # 重新检索（按文档原筛选条件），提供本章可用法规；附录来源不动
+        provinces, cities, file_types = _filters_of(doc)
+        context, _ = await asyncio.to_thread(
+            retrieve_with_citations, doc.original_text, 5, provinces, cities, file_types
+        )
+        messages = build_revise_messages(
+            doc.original_text, doc.requirements, context,
+            doc.sections, index, requirements, materials, SECTION_CTX_BUDGET,
+        )
+        content = await qwen_chat(messages)
+    except Exception:
+        # 失败：恢复原状态（旧内容仍在），别让前端看到"该节失败但内容凭空消失"
+        logger.exception("单节精修失败: doc_id=%s section=%d", doc.id, index)
+        doc.sections[index]["status"] = prev_status
+        update(doc)
+        raise
 
     doc.sections[index]["content"] = content.strip()
     doc.sections[index]["status"] = "completed"
