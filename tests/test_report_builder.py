@@ -72,7 +72,9 @@ def test_build_revise_messages_bases_on_own_section():
 
     assert "需改进章节：一、甲" in user
     assert "一、甲\n旧甲（本节原内容）" in user      # 注入本节自己，作改进底稿
-    assert "用户本次补充要求：\n补充要求文本" in user
+    assert "用户本次补充要求（最高优先级" in user     # 补充要求是硬约束（防被模板结构带偏）
+    assert "补充要求文本" in user
     assert "补充材料文本" in user
+    assert "只保留（一）" in user or "只保留某部分" in user  # 范围纪律措辞
     assert "旧乙" not in user                        # 其它章节不再注入
     assert "（未注入法规）" in user                  # 精修当前不注入法规，明确提示防幻觉
