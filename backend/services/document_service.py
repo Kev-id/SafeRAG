@@ -219,7 +219,7 @@ async def save_section(doc_id: str, index: int, content: str) -> Document:
 
 async def revise_section(doc_id: str, index: int,
                          requirements: str = "", materials: str = "") -> Document:
-    """对某一节追加"要求/材料"并让 AI 只重生成该节（其余章节作上下文）。
+    """对某一节追加"要求/材料"，仅基于本节当前内容改进该节（用户拍板：暂不注入法规）。
 
     同步调用：调用前先把该节 status 置 generating 并落库（前端轮询详情
     GET /documents/{id} 可见"精修中"——qwen_chat 是 await 不占事件循环，
@@ -237,13 +237,10 @@ async def revise_section(doc_id: str, index: int,
     update(doc)   # 立即落库：前端详情能轮询到"精修中"
 
     try:
-        # 重新检索（按文档原筛选条件），提供本章可用法规；附录来源不动
-        provinces, cities, file_types = _filters_of(doc)
-        context, _ = await asyncio.to_thread(
-            retrieve_with_citations, doc.original_text, 5, provinces, cities, file_types
-        )
+        # 精修暂不重新检索法规（context 传空 → prompt 显示"未注入法规"防幻觉）；
+        # 需要引条文时用户可把条文直接写进 materials。
         messages = build_revise_messages(
-            doc.original_text, doc.requirements, context,
+            doc.original_text, doc.requirements, "",
             doc.sections, index, requirements, materials, SECTION_CTX_BUDGET,
         )
         content = await qwen_chat(messages)

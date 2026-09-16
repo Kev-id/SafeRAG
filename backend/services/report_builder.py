@@ -90,19 +90,19 @@ def build_revise_messages(
     materials: str,
     budget: int,
 ) -> list[dict]:
-    """构造"单节精修重生成"的 messages：针对 index 节，追加本次要求/资料。"""
+    """构造"单节精修"的 messages：仅基于本节当前内容 + 本次追加要求/材料改进。
+
+    （用户拍板 2026-09-15）精修只"看自己这一节"：注入本节现有内容作改进底稿，
+    不带其它章节，也不重新检索法规（context 调方传 ""，显示"未注入法规"防幻觉）。
+    budget 参数保留以兼容签名；因不再注入其它章节，此处不适用。
+    """
     sec = sections[index]
     no = section_no(index)
     title = sec.get("title", "")
     instruction = sec.get("instruction", "")
 
-    # 其它章节作上下文（含本人旧内容，模型可对照改进，不含待生成节）
-    others: list[str] = []
-    for i, s in enumerate(sections):
-        if i == index or not s.get("content"):
-            continue
-        others.append(f"{section_no(i)}{s.get('title','')}\n{s['content']}")
-    others_text = trim_previous(others, budget)
+    own = (sec.get("content") or "").strip()
+    own_block = f"{no}{title}\n{own}" if own else "（本节尚无内容）"
 
     user = (
         f"原始文档：\n{original_text}\n\n"
@@ -110,10 +110,10 @@ def build_revise_messages(
         f"相关法规条文（有则引用并标注 [编号]，无则忽略）：\n{context or '（未注入法规）'}\n\n"
         f"需改进章节：{no}{title}\n"
         f"本章原撰写要求：\n{instruction}\n\n"
+        f"本节当前内容（在此基础上结合补充要求改进，勿整体推翻、勿照抄）：\n{own_block}\n\n"
         f"用户本次补充要求：\n{extra_requirements or '（无）'}\n\n"
-        f"用户补充材料（结合进本章，勿照抄，勿编造材料外的数字/事实）：\n{materials or '（无）'}\n\n"
-        f"其它章节（供上下文衔接，勿重复，勿改动它们）：\n{others_text}\n\n"
-        f"请只输出本章改进后的正文。"
+        f"用户补充材料（结合进本节，勿照抄，勿编造材料外的数字/事实）：\n{materials or '（无）'}\n\n"
+        "请只输出本节改进后的正文。"
     )
     return [
         {"role": "system", "content": SYSTEM_SECTION_PROMPT},

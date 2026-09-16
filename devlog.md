@@ -27,6 +27,9 @@
   逐节进度新增的中间 `update(doc)` 会把 DB 的 **processing 覆盖回 queued** → 前端处理期间
   一直显示"排队中"而非"处理中"。修：认领返回前把 `doc.status` 对齐 `processing`（DB 与内存一致）。
   旧代码整篇只在结尾 update 一次（此时 status 已是终态），所以从未暴露。
+- **精修行为（用户拍板）**：精修改为**只基于本节自己内容 + 追加要求/材料**改进——不注入其它章节、
+  不重新检索法规（防止 RAG 每次结果不同扰动局部改进）。代价：节间风格略脱节、无法规注入
+  （要引条文就由前端贴进 `materials`）；`context` 参数保留，将来要加回 RAG 只改一行。
 - 测试 45→51 passed（新增 template_service 归属/只读/idempotent + report_builder 纯函数）。
 
 ## 2026-09-15

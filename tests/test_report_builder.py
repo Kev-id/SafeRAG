@@ -61,16 +61,18 @@ def test_render_report_adds_heading_if_model_omitted():
     assert "\n\n## 一、甲\n只有正文没有标题" in out
 
 
-def test_build_revise_messages_has_extra_and_others():
+def test_build_revise_messages_bases_on_own_section():
+    """精修只基于本节自己内容（+补充要求/材料），不带其它章节。"""
     sections = [
-        {"title": "甲", "instruction": "i1", "content": "旧甲"},
+        {"title": "甲", "instruction": "i1", "content": "旧甲（本节原内容）"},
         {"title": "乙", "instruction": "i2", "content": "旧乙"},
     ]
     msgs = rb.build_revise_messages("原文", "要求", "", sections, 0, "补充要求文本", "补充材料文本", 1000)
     user = msgs[1]["content"]
 
     assert "需改进章节：一、甲" in user
+    assert "一、甲\n旧甲（本节原内容）" in user      # 注入本节自己，作改进底稿
     assert "用户本次补充要求：\n补充要求文本" in user
     assert "补充材料文本" in user
-    assert "旧乙" in user               # 其它章节作上下文
-    assert "用户本次补充要求" in user
+    assert "旧乙" not in user                        # 其它章节不再注入
+    assert "（未注入法规）" in user                  # 精修当前不注入法规，明确提示防幻觉
